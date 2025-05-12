@@ -21,28 +21,53 @@ class Option{
 	public:
 		Option(OptionKind k, uint8_t len);
 		void print();
+		std::vector<uint8_t> toBuffer();
 	private:
 		OptionKind kind;
 		uint8_t length;
+		uint8_t hasLength; 
 		std::vector<uint8_t> data;
 
+
+};
+
+enum class PacketFlags{
+
+	cwr = 0, 
+	ece = 1, 
+	urg = 2,
+	ack = 3, 
+	psh = 4,
+	rst = 5, 
+	syn = 6, 
+	fin = 7 
 };
 
 class Packet{
 
+	public:
+		Packet() = default;
+		void setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin);
+		void setPorts(uint16_t source, uint16_t dest);
+		void setNumbers(uint32_t seq, uint32_t ack);
+		void setDataOffRes(uint8_t dataOffset, uint8_t reserved);
+		void setWindowCheckUrg(uint16_t window, uint16_t check, uint16_t urg);
+		void setOptions(std::vector<Option> list);
+		void setPayload(std::vector<uint8_t> payload);
+		std::vector<uint8_t> toBuffer();
 	private:
 		uint16_t sourcePort;
 		uint16_t destPort;
 	
 		uint32_t seqNum;
 		uint32_t ackNum;
-		uint8_t dataOffAndReserved;
+		uint8_t dataOffReserved;
 		uint8_t flags;
 		uint16_t window;
 	
 		uint16_t checksum;
 		uint16_t urgPointer;
 		std::vector<Option> optionList;
-		uint8_t* payload;
+		std::vector<uint8_t> payload;
 
 };
