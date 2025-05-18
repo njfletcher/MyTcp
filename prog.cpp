@@ -1,7 +1,17 @@
 #include "packet.h"
+#include "network.h"
+#include <iostream>
 
 using namespace std;
 int main(int argc, char* argv[]){
+
+	if(argc < 2){
+		cout << "Need a destination ip." << endl;
+		return -1;
+		
+	}
+	
+	char* dest = argv[2];
 
 	OptionKind k = OptionKind::noOp;
 	Option o(k,1);
@@ -19,5 +29,8 @@ int main(int argc, char* argv[]){
 	vector<uint8_t> v1 = {0x1, 0x2, 0x33};
 	p.setPayload(v1);
 	p.print();
+	
+	sendPacket(dest, p);
+	
 	return 0;
 }

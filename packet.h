@@ -61,6 +61,9 @@ class Packet{
 		void setPayload(std::vector<uint8_t> payload);
 		std::vector<uint8_t> toBuffer();
 		void print();
+		
+		uint16_t getDestPort();
+		uint16_t getSrcPort();
 	private:
 		uint8_t getFlag(PacketFlags flag);
 		uint8_t getDataOffset();

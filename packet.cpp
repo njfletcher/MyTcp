@@ -103,6 +103,16 @@ uint8_t Packet::getReserved(){
 	return (dataOffReserved & 0xf0) >> 4;
 }
 
+uint16_t Packet::getDestPort(){
+
+	return destPort;
+}
+
+uint16_t Packet::getSrcPort(){
+	
+	return sourcePort;
+}
+
 void Packet::print(){
 
 	cout << "--------Packet--------" << endl;
