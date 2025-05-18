@@ -9,15 +9,11 @@ Option::Option(OptionKind k, uint8_t len): kind(k), length(len){};
 void Option::print(){
 
 	cout << "==OPTION==" << endl;
-	cout << "kind: " << static_cast<int>(kind) << endl;
-	cout << "length: " << static_cast<int>(length) << endl;
-	cout << "data: ";
-	for(int i = 0; i < data.size(); i++){
-	
-		cout << " " << data[i];
-	
-	}
-	cout << endl;
+	cout << "kind: " << static_cast<unsigned int>(kind) << endl;
+	cout << "length: " << static_cast<unsigned int>(length) << endl;
+	cout << "data: [";
+	for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
+	cout << "]" << endl;
 	cout << "==========" << endl;
 
 
@@ -54,6 +50,83 @@ void Packet::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_
 	flags = byte;
 }
 
+PacketFlags& operator++(PacketFlags& p, int i){
+	
+	switch(p){	
+		case PacketFlags::cwr:
+			p = PacketFlags::ece;
+			break;
+		case PacketFlags::ece:
+			p = PacketFlags::urg;
+			break;
+		case PacketFlags::urg:
+			p = PacketFlags::ack;
+			break;
+		case PacketFlags::ack:
+			p = PacketFlags::psh;
+			break;
+		case PacketFlags::psh:
+			p = PacketFlags::rst;
+			break;
+		case PacketFlags::rst:
+			p = PacketFlags::syn;
+			break;
+		case PacketFlags::syn:
+			p = PacketFlags::fin;
+			break;
+		case PacketFlags::fin:
+			p = PacketFlags::none;
+			break;
+		case PacketFlags::none:
+			p = PacketFlags::none;
+			break;	
+	
+	}
+	return p;
+
+}
+
+uint8_t Packet::getFlag(PacketFlags flag){
+
+	if (flag == PacketFlags::none) return 0;
+	
+	return (flags >> static_cast<int>(flag)) & 0x1;
+}
+
+
+uint8_t Packet::getDataOffset(){
+
+	return (dataOffReserved & 0xf);
+}
+uint8_t Packet::getReserved(){
+
+	return (dataOffReserved & 0xf0) >> 4;
+}
+
+void Packet::print(){
+
+	cout << "--------Packet--------" << endl;
+	cout << "sourcePort: " << sourcePort << endl;
+	cout << "destPort: " << destPort  << endl;
+	cout << "seqNum: " << seqNum  << endl;
+	cout << "ackNum: " << ackNum  << endl;
+	cout << "dataOffset: " << static_cast<unsigned int>(getDataOffset()) << endl;
+	cout << "reserved: " << static_cast<unsigned int>(getReserved())  << endl;
+	cout << "+++Flags+++" << endl;
+	for(PacketFlags p = PacketFlags::cwr; p != PacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
+	cout << "+++++++++++" << endl;
+	cout << "window: " << window << endl;
+	cout << "checksum: " << checksum  << endl;
+	cout << "urgPointer: " << urgPointer << endl;
+	cout << "optionList: " << endl;
+	for(size_t i = 0; i < optionList.size(); i++) optionList[i].print();
+	cout << "payload: [" << endl;
+	for(size_t i = 0; i < payload.size(); i++) cout << static_cast<unsigned int>(payload[i]) << " ";
+	cout << " ]" << endl;
+	cout << "----------------------" << endl;
+
+}
+
 void Packet::setPorts(uint16_t source, uint16_t dest){
 	sourcePort = source;
 	destPort = dest;
@@ -63,11 +136,8 @@ void Packet::setNumbers(uint32_t seq, uint32_t ack){
 	seqNum = seq;
 	ackNum = ack;
 }
-void Packet::setDataOffRes(uint8_t dataOffset, uint8_t reserved){
-
-	uint8_t upper = (reserved & 0xF) << 4;
-	uint8_t lower = (dataOffset & 0xF);
-	dataOffReserved = upper | lower;
+void Packet::setDataOffRes(uint8_t dataOff, uint8_t res){
+	dataOffReserved = (dataOff & 0xf) | ((res & 0xf) << 4);
 
 }
 void Packet::setWindowCheckUrg(uint16_t win, uint16_t check, uint16_t urg){
@@ -76,7 +146,6 @@ void Packet::setWindowCheckUrg(uint16_t win, uint16_t check, uint16_t urg){
 	urgPointer = urg;
 }
 void Packet::setOptions(vector<Option> list){
-
 	optionList = list;
 }
 void Packet::setPayload(vector<uint8_t> data){

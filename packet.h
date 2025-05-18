@@ -40,8 +40,13 @@ enum class PacketFlags{
 	psh = 4,
 	rst = 5, 
 	syn = 6, 
-	fin = 7 
+	fin = 7,
+	none = 8
+	
 };
+
+PacketFlags& operator++(PacketFlags& p, int);
+
 
 class Packet{
 
@@ -55,7 +60,12 @@ class Packet{
 		void setOptions(std::vector<Option> list);
 		void setPayload(std::vector<uint8_t> payload);
 		std::vector<uint8_t> toBuffer();
+		void print();
 	private:
+		uint8_t getFlag(PacketFlags flag);
+		uint8_t getDataOffset();
+		uint8_t getReserved();
+		
 		uint16_t sourcePort;
 		uint16_t destPort;
 	
