@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <cstdio>
+#include <iostream>
 #include <arpa/inet.h>
     
 
@@ -18,11 +19,11 @@ int sendPacket(char* destAddr, Packet& p){
 		perror("Cannot create socket. ");
 		return -1;
 	}
-	
-			
+		
 	dest.sin_family = AF_INET;
         dest.sin_port = htons(p.getDestPort());
-        dest.sin_addr.s_addr = inet_addr(destAddr);
+        cout << destAddr << endl;
+        inet_aton(destAddr, &(dest.sin_addr));
         
         serv.sin_family = AF_INET;
         serv.sin_port = htons(p.getSrcPort());

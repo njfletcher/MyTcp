@@ -4,13 +4,14 @@
 using namespace std;
 
 
-Option::Option(OptionKind k, uint8_t len): kind(k), length(len){};
+Option::Option(OptionKind k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
 
 void Option::print(){
 
 	cout << "==OPTION==" << endl;
 	cout << "kind: " << static_cast<unsigned int>(kind) << endl;
 	cout << "length: " << static_cast<unsigned int>(length) << endl;
+	cout << "hasLength: " << static_cast<unsigned int>(hasLength) << endl;
 	cout << "data: [";
 	for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
 	cout << "]" << endl;
@@ -96,11 +97,11 @@ uint8_t Packet::getFlag(PacketFlags flag){
 
 uint8_t Packet::getDataOffset(){
 
-	return (dataOffReserved & 0xf);
+	return (dataOffReserved & 0xf0) >> 4;
 }
 uint8_t Packet::getReserved(){
 
-	return (dataOffReserved & 0xf0) >> 4;
+        return (dataOffReserved & 0xf);
 }
 
 uint16_t Packet::getDestPort(){
@@ -147,7 +148,7 @@ void Packet::setNumbers(uint32_t seq, uint32_t ack){
 	ackNum = ack;
 }
 void Packet::setDataOffRes(uint8_t dataOff, uint8_t res){
-	dataOffReserved = (dataOff & 0xf) | ((res & 0xf) << 4);
+	dataOffReserved = (res & 0xf) | ((dataOff & 0xf) << 4);
 
 }
 void Packet::setWindowCheckUrg(uint16_t win, uint16_t check, uint16_t urg){

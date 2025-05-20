@@ -19,7 +19,7 @@ enum class OptionKind{
 
 class Option{
 	public:
-		Option(OptionKind k, uint8_t len);
+		Option(OptionKind k, uint8_t len, uint8_t hasLen);
 		void print();
 		std::vector<uint8_t> toBuffer();
 	private:
@@ -32,15 +32,15 @@ class Option{
 };
 
 enum class PacketFlags{
-
-	cwr = 0, 
-	ece = 1, 
-	urg = 2,
-	ack = 3, 
-	psh = 4,
-	rst = 5, 
-	syn = 6, 
-	fin = 7,
+	
+	fin = 0,
+	syn = 1,
+	rst = 2,
+	psh = 3,
+	ack = 4,
+	urg = 5,
+	ece = 6,
+	cwr = 7,
 	none = 8
 	
 };
