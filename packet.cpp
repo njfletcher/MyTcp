@@ -4,119 +4,120 @@
 using namespace std;
 
 
-Option::Option(OptionKind k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
+TcpOption::TcpOption(TcpOptionKind k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
 
-void Option::print(){
+void TcpOption::print(){
 
-	cout << "==OPTION==" << endl;
-	cout << "kind: " << static_cast<unsigned int>(kind) << endl;
-	cout << "length: " << static_cast<unsigned int>(length) << endl;
-	cout << "hasLength: " << static_cast<unsigned int>(hasLength) << endl;
-	cout << "data: [";
-	for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
-	cout << "]" << endl;
-	cout << "==========" << endl;
+  cout << "==TcpOption==" << endl;
+  cout << "kind: " << static_cast<unsigned int>(kind) << endl;
+  cout << "length: " << static_cast<unsigned int>(length) << endl;
+  cout << "hasLength: " << static_cast<unsigned int>(hasLength) << endl;
+  cout << "data: [";
+  for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
+  cout << "]" << endl;
+  cout << "==========" << endl;
 
 
 }
 
-vector<uint8_t> Option::toBuffer(){
+vector<uint8_t> TcpOption::toBuffer(){
 
-	vector<uint8_t> ret;
-	ret.push_back(static_cast<uint8_t>(kind));
-	if(hasLength){
-		ret.push_back(length);
-	}
-	
-	for(size_t i = 0; i < data.size(); i++){
-		ret.push_back(data[i]);
-	}
-	
-	return ret;
+  vector<uint8_t> ret;
+  ret.push_back(static_cast<uint8_t>(kind));
+  if(hasLength){
+	  ret.push_back(length);
+  }
+
+  for(size_t i = 0; i < data.size(); i++){
+	  ret.push_back(data[i]);
+  }
+
+  return ret;
 }
 
 
-void Packet::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
+TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
 
-	uint8_t byte = 0;
-	byte = byte | ((cwr & 0x1) << static_cast<int>(PacketFlags::cwr));
-	byte = byte | ((ece & 0x1) << static_cast<int>(PacketFlags::ece));
-	byte = byte | ((urg & 0x1) << static_cast<int>(PacketFlags::urg));
-	byte = byte | ((ack & 0x1) << static_cast<int>(PacketFlags::ack));
-	byte = byte | ((psh & 0x1) << static_cast<int>(PacketFlags::psh));
-	byte = byte | ((rst & 0x1) << static_cast<int>(PacketFlags::rst));
-	byte = byte | ((syn & 0x1) << static_cast<int>(PacketFlags::syn));
-	byte = byte | ((fin & 0x1) << static_cast<int>(PacketFlags::fin));
+  uint8_t byte = 0;
+  byte = byte | ((cwr & 0x1) << static_cast<int>(TcpPacketFlags::cwr));
+  byte = byte | ((ece & 0x1) << static_cast<int>(TcpPacketFlags::ece));
+  byte = byte | ((urg & 0x1) << static_cast<int>(TcpPacketFlags::urg));
+  byte = byte | ((ack & 0x1) << static_cast<int>(TcpPacketFlags::ack));
+  byte = byte | ((psh & 0x1) << static_cast<int>(TcpPacketFlags::psh));
+  byte = byte | ((rst & 0x1) << static_cast<int>(TcpPacketFlags::rst));
+  byte = byte | ((syn & 0x1) << static_cast<int>(TcpPacketFlags::syn));
+  byte = byte | ((fin & 0x1) << static_cast<int>(TcpPacketFlags::fin));
 
-	flags = byte;
+  flags = byte;
+  return *this;
 }
 
-PacketFlags& operator++(PacketFlags& p, int i){
+TcpPacketFlags& operator++(TcpPacketFlags& p, int i){
 	
-	switch(p){	
-		case PacketFlags::cwr:
-			p = PacketFlags::ece;
-			break;
-		case PacketFlags::ece:
-			p = PacketFlags::urg;
-			break;
-		case PacketFlags::urg:
-			p = PacketFlags::ack;
-			break;
-		case PacketFlags::ack:
-			p = PacketFlags::psh;
-			break;
-		case PacketFlags::psh:
-			p = PacketFlags::rst;
-			break;
-		case PacketFlags::rst:
-			p = PacketFlags::syn;
-			break;
-		case PacketFlags::syn:
-			p = PacketFlags::fin;
-			break;
-		case PacketFlags::fin:
-			p = PacketFlags::none;
-			break;
-		case PacketFlags::none:
-			p = PacketFlags::none;
-			break;	
-	
-	}
-	return p;
+  switch(p){	
+	  case TcpPacketFlags::cwr:
+		  p = TcpPacketFlags::ece;
+		  break;
+	  case TcpPacketFlags::ece:
+		  p = TcpPacketFlags::urg;
+		  break;
+	  case TcpPacketFlags::urg:
+		  p = TcpPacketFlags::ack;
+		  break;
+	  case TcpPacketFlags::ack:
+		  p = TcpPacketFlags::psh;
+		  break;
+	  case TcpPacketFlags::psh:
+		  p = TcpPacketFlags::rst;
+		  break;
+	  case TcpPacketFlags::rst:
+		  p = TcpPacketFlags::syn;
+		  break;
+	  case TcpPacketFlags::syn:
+		  p = TcpPacketFlags::fin;
+		  break;
+	  case TcpPacketFlags::fin:
+		  p = TcpPacketFlags::none;
+		  break;
+	  case TcpPacketFlags::none:
+		  p = TcpPacketFlags::none;
+		  break;	
+
+  }
+  return p;
 
 }
 
-uint8_t Packet::getFlag(PacketFlags flag){
+uint8_t TcpPacket::getFlag(TcpPacketFlags flag){
 
-	if (flag == PacketFlags::none) return 0;
+	if (flag == TcpPacketFlags::none) return 0;
 	
 	return (flags >> static_cast<int>(flag)) & 0x1;
 }
 
 
-uint8_t Packet::getDataOffset(){
+uint8_t TcpPacket::getDataOffset(){
 
 	return (dataOffReserved & 0xf0) >> 4;
 }
-uint8_t Packet::getReserved(){
+uint8_t TcpPacket::getReserved(){
 
         return (dataOffReserved & 0xf);
 }
 
-uint16_t Packet::getDestPort(){
+uint16_t TcpPacket::getDestPort(){
 
 	return destPort;
 }
 
-uint16_t Packet::getSrcPort(){
+uint16_t TcpPacket::getSrcPort(){
 	
 	return sourcePort;
 }
 
-void Packet::print(){
+void TcpPacket::print(){
 
-	cout << "--------Packet--------" << endl;
+	cout << "--------TcpPacket--------" << endl;
 	cout << "sourcePort: " << sourcePort << endl;
 	cout << "destPort: " << destPort  << endl;
 	cout << "seqNum: " << seqNum  << endl;
@@ -124,13 +125,13 @@ void Packet::print(){
 	cout << "dataOffset: " << static_cast<unsigned int>(getDataOffset()) << endl;
 	cout << "reserved: " << static_cast<unsigned int>(getReserved())  << endl;
 	cout << "+++Flags+++" << endl;
-	for(PacketFlags p = PacketFlags::cwr; p != PacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
+	for(TcpPacketFlags p = TcpPacketFlags::cwr; p != TcpPacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
 	cout << "+++++++++++" << endl;
 	cout << "window: " << window << endl;
 	cout << "checksum: " << checksum  << endl;
 	cout << "urgPointer: " << urgPointer << endl;
-	cout << "optionList: " << endl;
-	for(size_t i = 0; i < optionList.size(); i++) optionList[i].print();
+	cout << "TcpOptionList: " << endl;
+	for(size_t i = 0; i < TcpOptionList.size(); i++) TcpOptionList[i].print();
 	cout << "payload: [" << endl;
 	for(size_t i = 0; i < payload.size(); i++) cout << static_cast<unsigned int>(payload[i]) << " ";
 	cout << " ]" << endl;
@@ -138,34 +139,52 @@ void Packet::print(){
 
 }
 
-void Packet::setPorts(uint16_t source, uint16_t dest){
-	sourcePort = source;
-	destPort = dest;
+TcpPacket& TcpPacket::setSrcPort(uint16_t source){
+  sourcePort = source;
+  return *this;
+}
+TcpPacket& TcpPacket::setDestPort(uint16_t dest){
+  destPort = dest;
+  return *this;
+}
+TcpPacket& TcpPacket::setSeq(uint32_t seq){
+  seqNum = seq;
+  return *this;
+}
+TcpPacket& TcpPacket::setAck(uint32_t ack){
+  ackNum = ack;
+  return *this;
+}
+TcpPacket& TcpPacket::setDataOffset(uint8_t dataOffset){
+  dataOffReserved = (dataOffReserved & 0x0f) | ((dataOffset & 0xf) << 4);
+  return *this;
+}
+TcpPacket& TcpPacket::setReserved(uint8_t reserved){
+  dataOffReserved = (dataOffReserved & 0xf0) | (reserved & 0xf);
+  return *this;
+}
+TcpPacket& TcpPacket::setWindow(uint16_t win){
+  window = win;
+  return *this;
+}
+TcpPacket& TcpPacket::setChecksum(uint16_t check){
+  checksum = check;
+  return *this;
+}
+TcpPacket& TcpPacket::setUrgentPointer(uint16_t urg){
+  urgPointer = urg;
+  return *this;
+} 
+TcpPacket& TcpPacket::setTcpOptions(vector<TcpOption> list){
+  TcpOptionList = list;
+  return *this;
+}
+TcpPacket& TcpPacket::setPayload(vector<uint8_t> data){
+  payload = data;
+  return *this;
+}
 
-}
-void Packet::setNumbers(uint32_t seq, uint32_t ack){
-	seqNum = seq;
-	ackNum = ack;
-}
-void Packet::setDataOffRes(uint8_t dataOff, uint8_t res){
-	dataOffReserved = (res & 0xf) | ((dataOff & 0xf) << 4);
-
-}
-void Packet::setWindowCheckUrg(uint16_t win, uint16_t check, uint16_t urg){
-	window = win;
-	checksum = check;
-	urgPointer = urg;
-}
-void Packet::setOptions(vector<Option> list){
-	optionList = list;
-}
-void Packet::setPayload(vector<uint8_t> data){
-	payload = data;
-
-}
-
-
-vector<uint8_t> Packet::toBuffer(){
+vector<uint8_t> TcpPacket::toBuffer(){
 
 	vector<uint8_t> ret;
 	ret.push_back(((sourcePort & 0xFF00) >> 8) & 0xFF);
@@ -196,9 +215,9 @@ vector<uint8_t> Packet::toBuffer(){
 	ret.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
 	ret.push_back(urgPointer & 0x00FF);
 	
-	for(size_t i = 0; i < optionList.size(); i++){
+	for(size_t i = 0; i < TcpOptionList.size(); i++){
 	
-		vector<uint8_t> opt = optionList[i].toBuffer();
+		vector<uint8_t> opt = TcpOptionList[i].toBuffer();
 		for(size_t j = 0; j < opt.size(); j++){
 		
 			ret.push_back(opt[j]);

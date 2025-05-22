@@ -9,7 +9,7 @@
 
 using namespace std;
 
-int sendPacket(char* destAddr, Packet& p){  
+int sendPacket(char* destAddr, TcpPacket& p){  
   
   	struct sockaddr_in dest;
 	struct sockaddr_in serv;
