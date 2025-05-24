@@ -35,7 +35,8 @@ int sendPacket(char* destAddr, TcpPacket& p){
          	return -1;     
         }
         
-        vector<uint8_t> buffer = p.toBuffer();
+        vector<uint8_t> buffer;
+        p.toBuffer(buffer);
         uint8_t* rawBuffer = new uint8_t[buffer.size()];
         for(size_t i = 0; i < buffer.size(); i++){
         	rawBuffer[i] = buffer[i];

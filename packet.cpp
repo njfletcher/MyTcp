@@ -20,19 +20,15 @@ void TcpOption::print(){
 
 }
 
-vector<uint8_t> TcpOption::toBuffer(){
-
-  vector<uint8_t> ret;
-  ret.push_back(static_cast<uint8_t>(kind));
+void TcpOption::toBuffer(vector<uint8_t>& buff){
+  buff.push_back(static_cast<uint8_t>(kind));
   if(hasLength){
-	  ret.push_back(length);
+	  buff.push_back(length);
   }
 
   for(size_t i = 0; i < data.size(); i++){
-	  ret.push_back(data[i]);
+	  buff.push_back(data[i]);
   }
-
-  return ret;
 }
 
 
@@ -52,19 +48,16 @@ void IpOption::print(){
 
 }
 
-vector<uint8_t> IpOption::toBuffer(){
-
-  vector<uint8_t> ret;
-  ret.push_back(static_cast<uint8_t>(type));
+void IpOption::toBuffer(vector<uint8_t>& buff){
+  buff.push_back(static_cast<uint8_t>(type));
   if(hasLength){
-	  ret.push_back(length);
+	  buff.push_back(length);
   }
 
   for(size_t i = 0; i < data.size(); i++){
-	  ret.push_back(data[i]);
+	  buff.push_back(data[i]);
   }
-
-  return ret;
+  
 }
 
 
@@ -216,54 +209,39 @@ TcpPacket& TcpPacket::setPayload(vector<uint8_t> data){
   return *this;
 }
 
-vector<uint8_t> TcpPacket::toBuffer(){
+void TcpPacket::toBuffer(vector<uint8_t>& buff){
+	buff.push_back(((sourcePort & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(sourcePort & 0x00FF);
+	
+	buff.push_back(((destPort & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(destPort & 0x00FF);
 
-	vector<uint8_t> ret;
-	ret.push_back(((sourcePort & 0xFF00) >> 8) & 0xFF);
-	ret.push_back(sourcePort & 0x00FF);
-	
-	ret.push_back(((destPort & 0xFF00) >> 8) & 0xFF);
-	ret.push_back(destPort & 0x00FF);
+	buff.push_back(((seqNum & 0xFF000000) >> 24) & 0xFF);
+	buff.push_back(((seqNum & 0x00FF0000) >> 16) & 0xFF);
+	buff.push_back(((seqNum & 0x0000FF00) >> 8) & 0xFF);
+	buff.push_back(seqNum & 0x000000FF);
 
-	ret.push_back(((seqNum & 0xFF000000) >> 24) & 0xFF);
-	ret.push_back(((seqNum & 0x00FF0000) >> 16) & 0xFF);
-	ret.push_back(((seqNum & 0x0000FF00) >> 8) & 0xFF);
-	ret.push_back(seqNum & 0x000000FF);
-
-	ret.push_back(((ackNum & 0xFF000000) >> 24) & 0xFF);
-	ret.push_back(((ackNum & 0x00FF0000) >> 16) & 0xFF);
-	ret.push_back(((ackNum & 0x0000FF00) >> 8) & 0xFF);
-	ret.push_back(ackNum & 0x000000FF);
+	buff.push_back(((ackNum & 0xFF000000) >> 24) & 0xFF);
+	buff.push_back(((ackNum & 0x00FF0000) >> 16) & 0xFF);
+	buff.push_back(((ackNum & 0x0000FF00) >> 8) & 0xFF);
+	buff.push_back(ackNum & 0x000000FF);
 	
-	ret.push_back(dataOffReserved);
-	ret.push_back(flags);
+	buff.push_back(dataOffReserved);
+	buff.push_back(flags);
 	
-	ret.push_back(((window & 0xFF00) >> 8) & 0xFF);
-	ret.push_back(window & 0x00FF);
+	buff.push_back(((window & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(window & 0x00FF);
 	
-	ret.push_back(((checksum & 0xFF00) >> 8) & 0xFF);
-	ret.push_back(checksum & 0x00FF);
+	buff.push_back(((checksum & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(checksum & 0x00FF);
 	
-	ret.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
-	ret.push_back(urgPointer & 0x00FF);
+	buff.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(urgPointer & 0x00FF);
 	
-	for(size_t i = 0; i < optionList.size(); i++){
-	
-		vector<uint8_t> opt = optionList[i].toBuffer();
-		for(size_t j = 0; j < opt.size(); j++){
+	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);
 		
-			ret.push_back(opt[j]);
-		}
-	
-	}
-	
-	for(size_t i = 0; i < payload.size(); i++){
-		ret.push_back(payload[i]);
-	
-	}
-	
-	return ret;
-
+	for(size_t i = 0; i < payload.size(); i++) buff.push_back(payload[i]);
+      
 }
 
 
@@ -298,13 +276,12 @@ IpPacket& IpPacket::setIdent(uint16_t ident){
 }
 
 IpPacket& IpPacket::setFlags(uint8_t r, uint8_t df, uint8_t mf){
-  const int numFlags = 3;
   uint16_t flags = 0;
   flags = flags | ((r & 0x1) << static_cast<int>(IpPacketFlags::reserved));
   flags = flags | ((df & 0x1) << static_cast<int>(IpPacketFlags::dontFrag));
   flags = flags | ((mf & 0x1) << static_cast<int>(IpPacketFlags::moreFrag));
   
-  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numFlags));
+  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numIpPacketFlags));
   return *this;
 }
 
@@ -349,3 +326,105 @@ IpPacket& IpPacket::setTcpPacket(TcpPacket& packet){
 }
 
 
+
+uint8_t IpPacket::getVersion(){
+  return (versionIHL & 0xF0) >> 4;
+}
+uint8_t IpPacket::getIHL(){
+  return (versionIHL & 0x0F);
+}
+uint8_t IpPacket::getDscp(){
+  return (dscpEcn & 0xFC) >> 2;
+}
+uint8_t IpPacket::getEcn(){
+  return (dscpEcn & 0x3);
+}
+uint8_t IpPacket::getFlag(IpPacketFlags flag){
+  if (flag == IpPacketFlags::none) return 0;
+  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - numIpPacketFlags)) & 0xFF;
+  return (flags >> static_cast<int>(flag)) & 0x1;
+}
+uint16_t IpPacket::getFragOffset(){
+  return (flagsFragOffset & 0x01FFF);
+}
+
+IpPacketFlags& operator++(IpPacketFlags& p, int i){
+	
+  switch(p){	
+	  case IpPacketFlags::moreFrag:
+		  p = IpPacketFlags::dontFrag;
+		  break;
+	  case IpPacketFlags::dontFrag:
+		  p = IpPacketFlags::reserved;
+		  break;
+	  case IpPacketFlags::reserved:
+		  p = IpPacketFlags::none;
+		  break;
+	  case IpPacketFlags::none:
+		  p = IpPacketFlags::none;
+		  break;
+  }
+  return p;
+
+}
+
+void IpPacket::print(){
+
+	cout << "++++++++IpPacket++++++++" << endl;
+	cout << "version: " << static_cast<unsigned int>(getVersion()) << endl;
+	cout << "ihl: " << static_cast<unsigned int>(getIHL())  << endl;
+	cout << "dscp: " << static_cast<unsigned int>(getDscp())   << endl;
+	cout << "ecn: " <<  static_cast<unsigned int>(getEcn()) << endl;
+	cout << "total length: " << totalLength << endl;
+	cout << "identification: " << identification  << endl;
+	cout << "///Flags///" << endl;
+	for(IpPacketFlags p = IpPacketFlags::moreFrag; p != IpPacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
+	cout << "///////////" << endl;
+	cout << "fragment offset: " << getFragOffset() << endl;
+	cout << "ttl: " << static_cast<unsigned int>(ttl)  << endl;
+	cout << "protocol: " << static_cast<unsigned int>(protocol) << endl;
+	cout << "header checksum: " << headerChecksum << endl;
+	cout << "source address: " << sourceAddress << endl;
+	cout << "dest address: " << destAddress << endl;
+	cout << "IpOptionList: " << endl;
+	for(size_t i = 0; i < optionList.size(); i++) optionList[i].print();
+	tcpPacket.print();
+	cout << "++++++++++++++++++++++++" << endl;
+
+}
+
+void IpPacket::toBuffer(vector<uint8_t>& buff){
+
+	buff.push_back(versionIHL);
+	buff.push_back(dscpEcn);
+	
+	buff.push_back(((totalLength & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(totalLength & 0x00FF);
+	
+	buff.push_back(((identification & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(identification & 0x00FF);
+	
+	buff.push_back(((flagsFragOffset & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(flagsFragOffset & 0x00FF);
+	
+	buff.push_back(ttl);
+	buff.push_back(protocol);
+	
+	buff.push_back(((headerChecksum & 0xFF00) >> 8) & 0xFF);
+	buff.push_back(headerChecksum & 0x00FF);
+
+	buff.push_back(((sourceAddress & 0xFF000000) >> 24) & 0xFF);
+	buff.push_back(((sourceAddress & 0x00FF0000) >> 16) & 0xFF);
+	buff.push_back(((sourceAddress & 0x0000FF00) >> 8) & 0xFF);
+	buff.push_back(sourceAddress & 0x000000FF);
+
+	buff.push_back(((destAddress & 0xFF000000) >> 24) & 0xFF);
+	buff.push_back(((destAddress & 0x00FF0000) >> 16) & 0xFF);
+	buff.push_back(((destAddress & 0x0000FF00) >> 8) & 0xFF);
+	buff.push_back(destAddress & 0x000000FF);
+		
+	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);	
+	
+        tcpPacket.toBuffer(buff);
+
+}

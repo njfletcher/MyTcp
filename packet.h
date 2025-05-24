@@ -21,7 +21,7 @@ class TcpOption{
   public:
     TcpOption(TcpOptionKind k, uint8_t len, uint8_t hasLen);
     void print();
-    std::vector<uint8_t> toBuffer();
+    void toBuffer(std::vector<uint8_t>& buff);
   private:
     TcpOptionKind kind;
     uint8_t length;
@@ -62,7 +62,7 @@ class TcpPacket{
     TcpPacket& setUrgentPointer(uint16_t urg);
     TcpPacket& setOptions(std::vector<TcpOption> list);
     TcpPacket& setPayload(std::vector<uint8_t> payload);
-    std::vector<uint8_t> toBuffer();
+    void toBuffer(std::vector<uint8_t>& buff);
     void print();
 
     uint16_t getDestPort();
@@ -127,7 +127,7 @@ class IpOption{
   public:
     IpOption(IpOptionType t, uint8_t len, uint8_t hasLen);
     void print();
-    std::vector<uint8_t> toBuffer();
+    void toBuffer(std::vector<uint8_t>& buff);
   private:
     IpOptionType type;
     uint8_t length;
@@ -135,12 +135,15 @@ class IpOption{
     std::vector<uint8_t> data;
 };
 
+#define numIpPacketFlags 3
 enum class IpPacketFlags{
   moreFrag = 0,
   dontFrag = 1,
   reserved = 2,
   none = 3
 };
+
+IpPacketFlags& operator++(IpPacketFlags& p, int);
 
 class IpPacket{
 
@@ -160,8 +163,18 @@ class IpPacket{
     IpPacket& setOptions(std::vector<IpOption> list);
     IpPacket& setTcpPacket(TcpPacket& packet);
     void print();
+    void toBuffer(std::vector<uint8_t>& buff);
 
   private:
+  
+    uint8_t getVersion();
+    uint8_t getIHL();
+    uint8_t getDscp();
+    uint8_t getEcn();
+    uint8_t getFlag(IpPacketFlags flag);
+    uint16_t getFragOffset();
+    
+    
     uint8_t versionIHL;
     uint8_t dscpEcn;
     uint16_t totalLength;
