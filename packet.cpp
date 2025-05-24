@@ -36,6 +36,38 @@ vector<uint8_t> TcpOption::toBuffer(){
 }
 
 
+IpOption::IpOption(IpOptionType k, uint8_t len, uint8_t hasLen): type(k), length(len), hasLength(hasLen){};
+
+void IpOption::print(){
+
+  cout << "==IpOption==" << endl;
+  cout << "type: " << static_cast<unsigned int>(type) << endl;
+  cout << "length: " << static_cast<unsigned int>(length) << endl;
+  cout << "hasLength: " << static_cast<unsigned int>(hasLength) << endl;
+  cout << "data: [";
+  for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
+  cout << "]" << endl;
+  cout << "==========" << endl;
+
+
+}
+
+vector<uint8_t> IpOption::toBuffer(){
+
+  vector<uint8_t> ret;
+  ret.push_back(static_cast<uint8_t>(type));
+  if(hasLength){
+	  ret.push_back(length);
+  }
+
+  for(size_t i = 0; i < data.size(); i++){
+	  ret.push_back(data[i]);
+  }
+
+  return ret;
+}
+
+
 TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
 
   uint8_t byte = 0;
@@ -131,7 +163,7 @@ void TcpPacket::print(){
 	cout << "checksum: " << checksum  << endl;
 	cout << "urgPointer: " << urgPointer << endl;
 	cout << "TcpOptionList: " << endl;
-	for(size_t i = 0; i < TcpOptionList.size(); i++) TcpOptionList[i].print();
+	for(size_t i = 0; i < optionList.size(); i++) optionList[i].print();
 	cout << "payload: [" << endl;
 	for(size_t i = 0; i < payload.size(); i++) cout << static_cast<unsigned int>(payload[i]) << " ";
 	cout << " ]" << endl;
@@ -175,8 +207,8 @@ TcpPacket& TcpPacket::setUrgentPointer(uint16_t urg){
   urgPointer = urg;
   return *this;
 } 
-TcpPacket& TcpPacket::setTcpOptions(vector<TcpOption> list){
-  TcpOptionList = list;
+TcpPacket& TcpPacket::setOptions(vector<TcpOption> list){
+  optionList = list;
   return *this;
 }
 TcpPacket& TcpPacket::setPayload(vector<uint8_t> data){
@@ -215,9 +247,9 @@ vector<uint8_t> TcpPacket::toBuffer(){
 	ret.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
 	ret.push_back(urgPointer & 0x00FF);
 	
-	for(size_t i = 0; i < TcpOptionList.size(); i++){
+	for(size_t i = 0; i < optionList.size(); i++){
 	
-		vector<uint8_t> opt = TcpOptionList[i].toBuffer();
+		vector<uint8_t> opt = optionList[i].toBuffer();
 		for(size_t j = 0; j < opt.size(); j++){
 		
 			ret.push_back(opt[j]);
@@ -232,6 +264,88 @@ vector<uint8_t> TcpPacket::toBuffer(){
 	
 	return ret;
 
+}
+
+
+IpPacket& IpPacket::setVersion(uint8_t vers){
+  versionIHL = (versionIHL & 0x0F) | ((vers & 0xf) << 4);
+  return *this;
+}
+
+IpPacket& IpPacket::setIHL(uint8_t ihl){
+  versionIHL = (versionIHL & 0xF0) | (ihl & 0xf);
+  return *this;
+}
+
+IpPacket& IpPacket::setDSCP(uint8_t dscp){
+  dscpEcn = (dscpEcn & 0x03) | ((dscp & 0x3f) << 2);
+  return *this;
+}
+
+IpPacket& IpPacket::setEcn(uint8_t ecn){
+  dscpEcn = (dscpEcn & 0xFC) | (ecn & 0x3);
+  return *this;
+}
+
+IpPacket& IpPacket::setTotLen(uint16_t len){
+  totalLength = len;
+  return *this;
+}
+
+IpPacket& IpPacket::setIdent(uint16_t ident){
+  identification = ident;
+  return *this;
+}
+
+IpPacket& IpPacket::setFlags(uint8_t r, uint8_t df, uint8_t mf){
+  const int numFlags = 3;
+  uint16_t flags = 0;
+  flags = flags | ((r & 0x1) << static_cast<int>(IpPacketFlags::reserved));
+  flags = flags | ((df & 0x1) << static_cast<int>(IpPacketFlags::dontFrag));
+  flags = flags | ((mf & 0x1) << static_cast<int>(IpPacketFlags::moreFrag));
+  
+  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numFlags));
+  return *this;
+}
+
+IpPacket& IpPacket::setFragOff(uint16_t frag){
+  flagsFragOffset = (flagsFragOffset & 0xE000) | (frag & 0x01FFF);
+  return *this;
+}
+
+IpPacket& IpPacket::setTtl(uint8_t ttl){
+  this->ttl = ttl;
+  return *this;
+}
+
+IpPacket& IpPacket::setProto(uint8_t proto){
+  protocol = proto;
+  return *this;
+}
+
+IpPacket& IpPacket::setHeadCheck(uint16_t check){
+  headerChecksum = check;
+  return *this;
+}
+
+IpPacket& IpPacket::setSrcAddr(uint32_t addr){
+  sourceAddress = addr;
+  return *this;
+}
+
+IpPacket& IpPacket::setDstAddr(uint32_t addr){
+  destAddress = addr;
+  return *this;
+}
+
+IpPacket& IpPacket::setOptions(std::vector<IpOption> list){
+  optionList = list;
+  return *this;
+}
+
+IpPacket& IpPacket::setTcpPacket(TcpPacket& packet){
+  tcpPacket = packet;
+  return *this;
 }
 
 

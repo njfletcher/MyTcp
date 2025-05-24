@@ -60,7 +60,7 @@ class TcpPacket{
     TcpPacket& setWindow(uint16_t window);
     TcpPacket& setChecksum(uint16_t check);
     TcpPacket& setUrgentPointer(uint16_t urg);
-    TcpPacket& setTcpOptions(std::vector<TcpOption> list);
+    TcpPacket& setOptions(std::vector<TcpOption> list);
     TcpPacket& setPayload(std::vector<uint8_t> payload);
     std::vector<uint8_t> toBuffer();
     void print();
@@ -83,7 +83,7 @@ class TcpPacket{
 
     uint16_t checksum;
     uint16_t urgPointer;
-    std::vector<TcpOption> TcpOptionList;
+    std::vector<TcpOption> optionList;
     std::vector<uint8_t> payload;
 
 };
@@ -135,7 +135,31 @@ class IpOption{
     std::vector<uint8_t> data;
 };
 
+enum class IpPacketFlags{
+  moreFrag = 0,
+  dontFrag = 1,
+  reserved = 2,
+  none = 3
+};
+
 class IpPacket{
+
+    IpPacket& setVersion(uint8_t vers);
+    IpPacket& setIHL(uint8_t ihl);
+    IpPacket& setDSCP(uint8_t dscp);
+    IpPacket& setEcn(uint8_t ecn);
+    IpPacket& setTotLen(uint16_t len);
+    IpPacket& setIdent(uint16_t ident);
+    IpPacket& setFlags(uint8_t r, uint8_t df, uint8_t mf);
+    IpPacket& setFragOff(uint16_t frag);
+    IpPacket& setTtl(uint8_t ttl);
+    IpPacket& setProto(uint8_t proto);
+    IpPacket& setHeadCheck(uint16_t check);
+    IpPacket& setSrcAddr(uint32_t addr);
+    IpPacket& setDstAddr(uint32_t addr);
+    IpPacket& setOptions(std::vector<IpOption> list);
+    IpPacket& setTcpPacket(TcpPacket& packet);
+    void print();
 
   private:
     uint8_t versionIHL;
@@ -152,6 +176,6 @@ class IpPacket{
     uint32_t sourceAddress;
     uint32_t destAddress;
     
-    std::vector<IpOption> IpOptionList;
-    TcpPacket tcpPacket;
+    std::vector<IpOption> optionList;
+    TcpPacket& tcpPacket;
 };
