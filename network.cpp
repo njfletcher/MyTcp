@@ -13,8 +13,8 @@ int sendPacket(char* destAddr, TcpPacket& p){
   
   	struct sockaddr_in dest;
 	struct sockaddr_in serv;
+	s = socket(AF_INET, SOCK_RAW, TCP_PROTO);
 	
-	int s = socket(AF_INET, SOCK_RAW, TCP_PROTO);
 	if(s < 0){
 		perror("Cannot create socket. ");
 		return -1;

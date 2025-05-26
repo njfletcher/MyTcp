@@ -25,7 +25,9 @@ int main(int argc, char* argv[]){
 	
 	p.setFlags(0x1, 0x0, 0x1, 0x0, 0x1, 0x0, 0x1, 0x0).setSrcPort(0x1000).setDestPort(0x1000).setSeq(0x12345678).setAck(0x87654321).setDataOffset(0x06).setReserved(0x00).setWindow(0x1234).setChecksum(0x4321).setUrgentPointer(0x1243).setOptions(v).setPayload(v1);
 	
-	p.print();
+	
+	
+	
 	sendPacket(dest, p);
 	
 	return 0;

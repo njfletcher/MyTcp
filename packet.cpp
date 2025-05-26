@@ -3,6 +3,7 @@
 
 using namespace std;
 
+Packet::Packet(int t): type(t){};
 
 TcpOption::TcpOption(TcpOptionKind k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
 
@@ -32,7 +33,7 @@ void TcpOption::toBuffer(vector<uint8_t>& buff){
 }
 
 
-IpOption::IpOption(IpOptionType k, uint8_t len, uint8_t hasLen): type(k), length(len), hasLength(hasLen){};
+IpOption::IpOption(uint8_t t, uint8_t len, uint8_t hasLen): type(t), length(len), hasLength(hasLen){};
 
 void IpOption::print(){
 
@@ -49,7 +50,7 @@ void IpOption::print(){
 }
 
 void IpOption::toBuffer(vector<uint8_t>& buff){
-  buff.push_back(static_cast<uint8_t>(type));
+  buff.push_back(type);
   if(hasLength){
 	  buff.push_back(length);
   }
@@ -62,7 +63,7 @@ void IpOption::toBuffer(vector<uint8_t>& buff){
 
 
 TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
-
+  
   uint8_t byte = 0;
   byte = byte | ((cwr & 0x1) << static_cast<int>(TcpPacketFlags::cwr));
   byte = byte | ((ece & 0x1) << static_cast<int>(TcpPacketFlags::ece));
@@ -426,5 +427,84 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
 	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);	
 	
         tcpPacket.toBuffer(buff);
+
+}
+
+
+//returns number of bytes read, -1 if error.
+//numBytesRemaining val is assumed to be greater than 0.
+int IpOption::fromBuffer(uint8_t* bufferPtr, int numBytesRemaining){
+  
+  *more = 1;
+  int numBytesRead = 0;
+  uint8_t buffer = *bufferPtr;
+  uint8_t t = buffer[0];
+  numBytesRead = numBytesRead + 1;
+  
+  type = t;
+  if( t == static_cast<uint8_t>(IpOptionType::eool)){
+      hasLength = 0;
+      return numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
+  }
+
+  if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
+      hasLength = 0;
+      return numBytesRead;
+  }
+  
+  uint8_t len = buffer[1];
+  numBytesRead = numBytesRead + 1;
+  length = len;
+  hasLength = 1;
+  
+  uint8_t dataLength = length -2; // to account for length and type field
+  
+  if(dataLength > (numBytesRemaining-2)) return -1;
+  
+  for(uint8_t i = 0; i < dataLength; i++){
+    data.push_back(buffer[2 + i]);
+  }
+  numBytesRead = numBytesRead + dataLength;
+  return numBytesRead;
+  
+}
+
+int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+  
+  if(numBytes < ipMinHeaderLen){
+    return -1;
+  }
+  
+  versionIHL = buffer[0];
+  dscpEcn = buffer[1];
+  totalLength = (static_cast<uint16_t>(buffer[2]) << 8) | static_cast<uint16_t>(buffer[3]);
+  identification = (static_cast<uint16_t>(buffer[4]) << 8) | static_cast<uint16_t>(buffer[5]);
+  flagsFragOffset = (static_cast<uint16_t>(buffer[6]) << 8) | static_cast<uint16_t>(buffer[7]);
+  ttl = buffer[8];
+  protocol = buffer[9];
+  headerChecksum = (static_cast<uint16_t>(buffer[10]) << 8) | static_cast<uint16_t>(buffer[11]);
+  sourceAddress = (static_cast<uint32_t>(buffer[12]) << 24) | (static_cast<uint32_t>(buffer[13]) << 16) | (static_cast<uint32_t(buffer[14]) << 8) | static_cast<uint32_t>(buffer[15]);
+  destAddress = (static_cast<uint32_t>(buffer[16]) << 24) | (static_cast<uint32_t>(buffer[17]) << 16) | (static_cast<uint32_t(buffer[18]) << 8) | static_cast<uint32_t>(buffer[19]);
+  
+  uint8_t ihlConv = getIHL() * 4;
+  if(ihlConv < 20 || ihlConv > numBytes) return -1;
+  
+  uint8_t currPointer = buffer + ipMinHeaderLen;
+  
+  if(ihlConv > 20){
+    int optionBytesRemaining = ihlConv - ipMinHeaderLen;
+    while(optionBytesRemaining > 0){
+        IpOption o;
+        int numBytesRead = o.fromBuffer(currPointer, optionBytesRemaining);
+        if(numBytesRead == -1) return -1;
+        optionBytesRemaining = optionBytesRemaining - numBytesRead;
+    }
+    
+  }
+  
+  
+  
+  
+  
 
 }

@@ -2,6 +2,8 @@
 #include <vector>
 #include <cstdint>
 
+#define ipMinHeaderLen 20
+
 enum class TcpOptionKind{
 
   end = 0,
@@ -46,7 +48,7 @@ enum class TcpPacketFlags{
 TcpPacketFlags& operator++(TcpPacketFlags& p, int);
 
 
-class TcpPacket{
+class TcpPacket: public Packet{
 
   public:
     TcpPacket() = default;
@@ -128,8 +130,9 @@ class IpOption{
     IpOption(IpOptionType t, uint8_t len, uint8_t hasLen);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
+    int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
   private:
-    IpOptionType type;
+    uint8_t type;
     uint8_t length;
     uint8_t hasLength; 
     std::vector<uint8_t> data;
@@ -145,8 +148,12 @@ enum class IpPacketFlags{
 
 IpPacketFlags& operator++(IpPacketFlags& p, int);
 
-class IpPacket{
+class IpPacket: public Packet{
 
+  public:
+    IpPacket() = default;
+    
+    
     IpPacket& setVersion(uint8_t vers);
     IpPacket& setIHL(uint8_t ihl);
     IpPacket& setDSCP(uint8_t dscp);
@@ -162,8 +169,10 @@ class IpPacket{
     IpPacket& setDstAddr(uint32_t addr);
     IpPacket& setOptions(std::vector<IpOption> list);
     IpPacket& setTcpPacket(TcpPacket& packet);
-    void print();
+    
+    int fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
+    void print();
 
   private:
   
