@@ -13,10 +13,10 @@ int main(int argc, char* argv[]){
 	
 	char* dest = argv[1];
 
-	TcpOption o(TcpOptionKind::noOp,0,0);	
+	TcpOption o(0x1,0,0);	
 	o.print();
 	
-	TcpOption o1(TcpOptionKind::end,0,0);	
+	TcpOption o1(0x0,0,0);	
 	o1.print();
 
 	TcpPacket p;

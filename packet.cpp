@@ -3,9 +3,7 @@
 
 using namespace std;
 
-Packet::Packet(int t): type(t){};
-
-TcpOption::TcpOption(TcpOptionKind k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
+TcpOption::TcpOption(uint8_t k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
 
 void TcpOption::print(){
 
@@ -22,7 +20,7 @@ void TcpOption::print(){
 }
 
 void TcpOption::toBuffer(vector<uint8_t>& buff){
-  buff.push_back(static_cast<uint8_t>(kind));
+  buff.push_back(kind);
   if(hasLength){
 	  buff.push_back(length);
   }
@@ -30,6 +28,42 @@ void TcpOption::toBuffer(vector<uint8_t>& buff){
   for(size_t i = 0; i < data.size(); i++){
 	  buff.push_back(data[i]);
   }
+}
+
+//returns number of bytes read, -1 if error.
+//numBytesRemaining val is assumed to be greater than 0.
+int TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining){
+  
+  int numBytesRead = 0;
+  uint8_t k = buffer[0];
+  numBytesRead = numBytesRead + 1;
+  
+  kind = k;
+  if( k == static_cast<uint8_t>(TcpOptionKind::end)){
+      hasLength = 0;
+      return numBytesRemaining; //even if dataoffset claims there are more bytes, end means that reading needs to stop.
+  }
+
+  if(k == static_cast<uint8_t>(TcpOptionKind::noOp) || numBytesRemaining < 2){
+      hasLength = 0;
+      return numBytesRead;
+  }
+  
+  uint8_t len = buffer[1];
+  numBytesRead = numBytesRead + 1;
+  length = len;
+  hasLength = 1;
+  
+  uint8_t dataLength = length -2; // to account for length and type field
+  
+  if(dataLength > (numBytesRemaining-2)) return -1;
+  
+  for(uint8_t i = 0; i < dataLength; i++){
+    data.push_back(buffer[2 + i]);
+  }
+  numBytesRead = numBytesRead + dataLength;
+  return numBytesRead;
+  
 }
 
 
@@ -60,6 +94,44 @@ void IpOption::toBuffer(vector<uint8_t>& buff){
   }
   
 }
+
+//returns number of bytes read, -1 if error.
+//numBytesRemaining val is assumed to be greater than 0.
+int IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining){
+  
+  int numBytesRead = 0;
+  uint8_t t = buffer[0];
+  numBytesRead = numBytesRead + 1;
+  
+  type = t;
+  if( t == static_cast<uint8_t>(IpOptionType::eool)){
+      hasLength = 0;
+      return numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
+  }
+
+  if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
+      hasLength = 0;
+      return numBytesRead;
+  }
+  
+  uint8_t len = buffer[1];
+  numBytesRead = numBytesRead + 1;
+  length = len;
+  hasLength = 1;
+  
+  uint8_t dataLength = length -2; // to account for length and type field
+  
+  if(dataLength > (numBytesRemaining-2)) return -1;
+  
+  for(uint8_t i = 0; i < dataLength; i++){
+    data.push_back(buffer[2 + i]);
+  }
+  numBytesRead = numBytesRead + dataLength;
+  return numBytesRead;
+  
+}
+
+
 
 
 TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
@@ -243,6 +315,55 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 		
 	for(size_t i = 0; i < payload.size(); i++) buff.push_back(payload[i]);
       
+}
+
+int TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+  
+  if(numBytes < tcpMinHeaderLen){
+    return -1;
+  }
+  
+  sourcePort = (static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]);
+  destPort = (static_cast<uint16_t>(buffer[2]) << 8) | static_cast<uint16_t>(buffer[3]);
+
+  seqNum = (static_cast<uint32_t>(buffer[4]) << 24) | (static_cast<uint32_t>(buffer[5]) << 16) | (static_cast<uint32_t>(buffer[6]) << 8) | static_cast<uint32_t>(buffer[7]);
+  
+  ackNum = (static_cast<uint32_t>(buffer[8]) << 24) | (static_cast<uint32_t>(buffer[9]) << 16) | (static_cast<uint32_t>(buffer[10]) << 8) | static_cast<uint32_t>(buffer[11]);
+  
+  dataOffReserved = buffer[12];
+  flags = buffer[13];
+  window = (static_cast<uint16_t>(buffer[14]) << 8) | static_cast<uint16_t>(buffer[15]);
+  
+  checksum = (static_cast<uint16_t>(buffer[16]) << 8) | static_cast<uint16_t>(buffer[17]);
+  urgPointer = (static_cast<uint16_t>(buffer[18]) << 8) | static_cast<uint16_t>(buffer[19]);
+
+  uint8_t offsetConv = getDataOffset() * 4;
+  if(offsetConv < 20 || offsetConv > numBytes) return -1;
+  
+  uint8_t* currPointer = buffer + tcpMinHeaderLen;
+  
+  vector<TcpOption> options;
+  
+  if(offsetConv > 20){
+    int optionBytesRemaining = offsetConv - tcpMinHeaderLen;
+    while(optionBytesRemaining > 0){
+        TcpOption o;
+        int numBytesRead = o.fromBuffer(currPointer, optionBytesRemaining);
+        if(numBytesRead == -1) return -1;
+        currPointer = currPointer + numBytesRead;
+        optionBytesRemaining = optionBytesRemaining - numBytesRead;
+        options.push_back(o);
+    }
+    optionList = options;
+  }
+  
+  int dataBytesRemaining = numBytes - offsetConv;
+  for(int i =0; i < dataBytesRemaining; i++){
+    payload.push_back(currPointer[i]);
+  }
+
+  return 0;
+  
 }
 
 
@@ -430,45 +551,6 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
 
 }
 
-
-//returns number of bytes read, -1 if error.
-//numBytesRemaining val is assumed to be greater than 0.
-int IpOption::fromBuffer(uint8_t* bufferPtr, int numBytesRemaining){
-  
-  *more = 1;
-  int numBytesRead = 0;
-  uint8_t buffer = *bufferPtr;
-  uint8_t t = buffer[0];
-  numBytesRead = numBytesRead + 1;
-  
-  type = t;
-  if( t == static_cast<uint8_t>(IpOptionType::eool)){
-      hasLength = 0;
-      return numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
-  }
-
-  if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
-      hasLength = 0;
-      return numBytesRead;
-  }
-  
-  uint8_t len = buffer[1];
-  numBytesRead = numBytesRead + 1;
-  length = len;
-  hasLength = 1;
-  
-  uint8_t dataLength = length -2; // to account for length and type field
-  
-  if(dataLength > (numBytesRemaining-2)) return -1;
-  
-  for(uint8_t i = 0; i < dataLength; i++){
-    data.push_back(buffer[2 + i]);
-  }
-  numBytesRead = numBytesRead + dataLength;
-  return numBytesRead;
-  
-}
-
 int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < ipMinHeaderLen){
@@ -483,13 +565,15 @@ int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   ttl = buffer[8];
   protocol = buffer[9];
   headerChecksum = (static_cast<uint16_t>(buffer[10]) << 8) | static_cast<uint16_t>(buffer[11]);
-  sourceAddress = (static_cast<uint32_t>(buffer[12]) << 24) | (static_cast<uint32_t>(buffer[13]) << 16) | (static_cast<uint32_t(buffer[14]) << 8) | static_cast<uint32_t>(buffer[15]);
-  destAddress = (static_cast<uint32_t>(buffer[16]) << 24) | (static_cast<uint32_t>(buffer[17]) << 16) | (static_cast<uint32_t(buffer[18]) << 8) | static_cast<uint32_t>(buffer[19]);
+  sourceAddress = (static_cast<uint32_t>(buffer[12]) << 24) | (static_cast<uint32_t>(buffer[13]) << 16) | (static_cast<uint32_t>(buffer[14]) << 8) | static_cast<uint32_t>(buffer[15]);
+  destAddress = (static_cast<uint32_t>(buffer[16]) << 24) | (static_cast<uint32_t>(buffer[17]) << 16) | (static_cast<uint32_t>(buffer[18]) << 8) | static_cast<uint32_t>(buffer[19]);
   
   uint8_t ihlConv = getIHL() * 4;
   if(ihlConv < 20 || ihlConv > numBytes) return -1;
   
-  uint8_t currPointer = buffer + ipMinHeaderLen;
+  uint8_t* currPointer = buffer + ipMinHeaderLen;
+  
+  vector<IpOption> options;
   
   if(ihlConv > 20){
     int optionBytesRemaining = ihlConv - ipMinHeaderLen;
@@ -497,14 +581,15 @@ int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
         IpOption o;
         int numBytesRead = o.fromBuffer(currPointer, optionBytesRemaining);
         if(numBytesRead == -1) return -1;
+        currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
+        options.push_back(o);
     }
-    
+    optionList = options;
   }
   
+  int tcpBytesRemaining = numBytes - ihlConv;
+  if(tcpPacket.fromBuffer(currPointer, tcpBytesRemaining) == -1) return -1;
+  else return 0;
   
-  
-  
-  
-
 }
