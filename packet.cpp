@@ -3,6 +3,8 @@
 
 using namespace std;
 
+IpPacket::IpPacket(): tcpPacket() {};
+
 TcpOption::TcpOption(uint8_t k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
 
 void TcpOption::print(){

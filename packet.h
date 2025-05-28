@@ -4,6 +4,7 @@
 
 #define ipMinHeaderLen 20
 #define tcpMinHeaderLen 20
+#define ipPacketMaxSize 65535
 
 enum class TcpOptionKind{
 
@@ -157,8 +158,7 @@ IpPacketFlags& operator++(IpPacketFlags& p, int);
 class IpPacket{
 
   public:
-    IpPacket() = default;
-    
+    IpPacket();
     
     IpPacket& setVersion(uint8_t vers);
     IpPacket& setIHL(uint8_t ihl);
@@ -205,5 +205,5 @@ class IpPacket{
     uint32_t destAddress;
     
     std::vector<IpOption> optionList;
-    TcpPacket& tcpPacket;
+    TcpPacket tcpPacket;
 };
