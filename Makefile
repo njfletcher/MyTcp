@@ -9,3 +9,6 @@ state.o: state.cpp
 	g++ -c state.cpp
 network.o: network.cpp
 	g++ -c network.cpp
+	
+clean:
+	rm *.o fuzzer

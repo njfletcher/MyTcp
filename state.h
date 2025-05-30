@@ -1,4 +1,7 @@
 #pragma once
+#include <cstdint>
+#define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
+int pickIsn(Tcb& block, uint32_t* res);
 
 enum class States{
   Listen,
@@ -24,7 +27,7 @@ enum class Events{
 };
 
 
-class TCB{
+class Tcb{
 
   uint32_t sourceAddress;
   uint32_t destAddress;

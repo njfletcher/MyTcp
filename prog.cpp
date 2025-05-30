@@ -1,6 +1,7 @@
 #include "packet.h"
 #include "network.h"
 #include <iostream>
+#include "state.h"
 
 using namespace std;
 int main(int argc, char* argv[]){
@@ -11,7 +12,7 @@ int main(int argc, char* argv[]){
 		
 	}
 	
-	char* dest = argv[1];
+	/*char* dest = argv[1];
 
 	TcpOption o(0x1,0,0);	
 	o.print();
@@ -31,6 +32,9 @@ int main(int argc, char* argv[]){
 	int ret = sendPacket(dest, p, packet);
 	
         packet.print();
-      
+        */
+        
+        cout << pickIsn() << endl;
+        
 	return 0;
 }
