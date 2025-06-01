@@ -11,7 +11,7 @@ using namespace std;
 
 uint8_t ipBuffer[ipPacketMaxSize];
 
-int sendPacket(char* destAddr, TcpPacket& p, IpPacket& packet){  
+int sendPacket(uint32_t destAddr, uint32_t sourceAddr, uint16_t destPort, uint16_t sourcePort, TcpPacket& p, IpPacket& packet){  
   
   	struct sockaddr_in dest;
 	struct sockaddr_in serv;
@@ -23,13 +23,12 @@ int sendPacket(char* destAddr, TcpPacket& p, IpPacket& packet){
 	}
 		
 	dest.sin_family = AF_INET;
-        dest.sin_port = htons(p.getDestPort());
-        cout << destAddr << endl;
-        inet_aton(destAddr, &(dest.sin_addr));
+        dest.sin_port = destPort;
+        dest.sin_addr.s_addr = destAddr;
         
         serv.sin_family = AF_INET;
-        serv.sin_port = htons(p.getSrcPort());
-        serv.sin_addr.s_addr = INADDR_ANY;
+        serv.sin_port = sourcePort;
+        serv.sin_addr.s_addr = sourceAddr;
                 
 	if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
                 
