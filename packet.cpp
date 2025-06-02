@@ -134,6 +134,74 @@ int IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining){
 }
 
 
+void onesCompAdd(uint16_t& num1, uint16_t num2){
+
+  uint32_t res = num1 + num2;
+  if(res > 0xffff){
+  
+    res = (res & 0xffff) + 1;
+  }
+  num1 = static_cast<uint16_t>(res);
+}
+
+
+uint16_t TcpOption::getSize(){
+
+    uint16_t size = 1; //kind
+    if(hasLength){
+      size = size + 1; //length byte
+    }
+    size = size + data.size();
+    return size;
+}
+
+uint16_t TcpPacket::getSize(){
+  
+  uint16_t size = 20; //standard header
+  for(size_t i = 0; i < optionList.size(); i++){
+    size = size + optionList[i].getSize();
+  }
+  size = size + payload.size();
+  return size;
+}
+
+//assumes addresses are already in network byte order.
+TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
+
+  uint16_t accum = 0;
+  onesCompAdd(accum, (sourceAddress & 0x0000FFFF);
+  onesCompAdd(accum, (sourceAddress & 0xFFFF0000) >> 16);
+  onesCompAdd(accum, (destAddress & 0x0000FFFF);
+  onesCompAdd(accum, (destAddress & 0xFFFF0000) >> 16);
+  onesCompAdd(accum, 0x0600);
+  uint16_t temp = getSize();
+  temp = (temp & 0xFF00) >> 8) | (temp & 0x00FF) << 8);
+  onesCompAdd(accum,temp);
+  temp = ((sourcePort & 0xFF00) >> 8) | ((sourcePort & 0x00FF) << 8);
+  onesCompAdd(accum, temp);
+  temp = ((destPort & 0xFF00) >> 8) | ((destPort & 0x00FF) << 8);
+  onesCompAdd(accum, temp);
+  temp = ((seqNum & 0xFF000000) >> 24) | ((seqNum & 0x00FF0000) >> 8);
+  onesCompAdd(accum, temp);
+  temp = ((seqNum & 0x0000FF00) >> 8) | (seqNum & 0x000000FF);
+  onesCompAdd(accum, temp);
+  
+  temp = ((ackNum & 0xFF000000) >> 24) | ((ackNum & 0x00FF0000) >> 8);
+  onesCompAdd(accum, temp);
+  temp = ((ackNum & 0x0000FF00) >> 8) | (ackNum & 0x000000FF);
+  onesCompAdd(accum, temp);
+  
+  temp = dataOffReserved | (flags << 8);
+  temp = (window & 0xFF00) >> 8) | (window & 0x00FF) << 8);
+  onesCompAdd(accum,temp);
+  onesCompAdd(accum, 0x0000);// checksum is replaced by zeros
+  temp = (urgPointer & 0xFF00) >> 8) | (urgPointer & 0x00FF) << 8);
+  onesCompAdd(accum,temp); 
+  
+  
+  checksum = ~accum;
+}
+
 
 
 TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){

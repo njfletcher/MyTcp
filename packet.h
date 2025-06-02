@@ -29,6 +29,7 @@ class TcpOption{
     void toBuffer(std::vector<uint8_t>& buff);
     int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
   private:
+    uint16_t getSize();
     uint8_t kind;
     uint8_t length;
     uint8_t hasLength; 
@@ -65,6 +66,7 @@ class TcpPacket{
     TcpPacket& setReserved(uint8_t reserved);
     TcpPacket& setWindow(uint16_t window);
     TcpPacket& setChecksum(uint16_t check);
+    TcpPacket& setRealChecksum(uint32_t sourceAddress, uint32_t destAddress);
     TcpPacket& setUrgentPointer(uint16_t urg);
     TcpPacket& setOptions(std::vector<TcpOption> list);
     TcpPacket& setPayload(std::vector<uint8_t> payload);
@@ -76,6 +78,7 @@ class TcpPacket{
     uint16_t getDestPort();
     uint16_t getSrcPort();
   private:
+    uint16_t getSize();
     uint8_t getFlag(TcpPacketFlags flag);
     uint8_t getDataOffset();
     uint8_t getReserved();
