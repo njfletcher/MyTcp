@@ -5,7 +5,23 @@ using namespace std;
 
 IpPacket::IpPacket(): tcpPacket() {};
 
-TcpOption::TcpOption(uint8_t k, uint8_t len, uint8_t hasLen): kind(k), length(len), hasLength(hasLen){};
+uint16_t TcpOption::calcSize(){
+  uint16_t sz = 1; //kind
+  if(hasLength){
+    sz = sz + 1; //len byte
+  }
+  sz = sz + data.size();
+  return sz;
+}
+
+uint16_t TcpOption::getSize(){
+  return size;
+}
+
+
+TcpOption::TcpOption(uint8_t k, uint8_t len, uint8_t hasLen, vector<uint8_t> d): kind(k), length(len), hasLength(hasLen), data(d){
+  size = calcSize();
+};
 
 void TcpOption::print(){
 
@@ -43,11 +59,13 @@ int TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining){
   kind = k;
   if( k == static_cast<uint8_t>(TcpOptionKind::end)){
       hasLength = 0;
+      size = calcSize();
       return numBytesRemaining; //even if dataoffset claims there are more bytes, end means that reading needs to stop.
   }
 
   if(k == static_cast<uint8_t>(TcpOptionKind::noOp) || numBytesRemaining < 2){
       hasLength = 0;
+      size = calcSize();
       return numBytesRead;
   }
   
@@ -64,6 +82,7 @@ int TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining){
     data.push_back(buffer[2 + i]);
   }
   numBytesRead = numBytesRead + dataLength;
+  size = calcSize();
   return numBytesRead;
   
 }
@@ -144,38 +163,27 @@ void onesCompAdd(uint16_t& num1, uint16_t num2){
   num1 = static_cast<uint16_t>(res);
 }
 
-
-uint16_t TcpOption::getSize(){
-
-    uint16_t size = 1; //kind
-    if(hasLength){
-      size = size + 1; //length byte
-    }
-    size = size + data.size();
-    return size;
-}
-
-uint16_t TcpPacket::getSize(){
+uint16_t TcpPacket::calcSize(){
   
-  uint16_t size = 20; //standard header
+  uint16_t sz = 20; //standard header
   for(size_t i = 0; i < optionList.size(); i++){
-    size = size + optionList[i].getSize();
+    sz = sz + optionList[i].getSize();
   }
-  size = size + payload.size();
-  return size;
+  sz = sz + payload.size();
+  return sz;
 }
 
 //assumes addresses are already in network byte order.
 TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
-
+  
   uint16_t accum = 0;
-  onesCompAdd(accum, (sourceAddress & 0x0000FFFF);
+  onesCompAdd(accum, (sourceAddress & 0x0000FFFF));
   onesCompAdd(accum, (sourceAddress & 0xFFFF0000) >> 16);
-  onesCompAdd(accum, (destAddress & 0x0000FFFF);
+  onesCompAdd(accum, (destAddress & 0x0000FFFF));
   onesCompAdd(accum, (destAddress & 0xFFFF0000) >> 16);
   onesCompAdd(accum, 0x0600);
-  uint16_t temp = getSize();
-  temp = (temp & 0xFF00) >> 8) | (temp & 0x00FF) << 8);
+  uint16_t temp = size;
+  temp = ((temp & 0xFF00) >> 8) | ((temp & 0x00FF) << 8);
   onesCompAdd(accum,temp);
   temp = ((sourcePort & 0xFF00) >> 8) | ((sourcePort & 0x00FF) << 8);
   onesCompAdd(accum, temp);
@@ -183,23 +191,39 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   onesCompAdd(accum, temp);
   temp = ((seqNum & 0xFF000000) >> 24) | ((seqNum & 0x00FF0000) >> 8);
   onesCompAdd(accum, temp);
-  temp = ((seqNum & 0x0000FF00) >> 8) | (seqNum & 0x000000FF);
+  temp = ((seqNum & 0x0000FF00) >> 8) | ((seqNum & 0x000000FF) << 8);
   onesCompAdd(accum, temp);
-  
   temp = ((ackNum & 0xFF000000) >> 24) | ((ackNum & 0x00FF0000) >> 8);
   onesCompAdd(accum, temp);
-  temp = ((ackNum & 0x0000FF00) >> 8) | (ackNum & 0x000000FF);
+  temp = ((ackNum & 0x0000FF00) >> 8) | ((ackNum & 0x000000FF) << 8);
   onesCompAdd(accum, temp);
-  
   temp = dataOffReserved | (flags << 8);
-  temp = (window & 0xFF00) >> 8) | (window & 0x00FF) << 8);
+  temp = ((window & 0xFF00) >> 8) | ((window & 0x00FF) << 8);
   onesCompAdd(accum,temp);
   onesCompAdd(accum, 0x0000);// checksum is replaced by zeros
-  temp = (urgPointer & 0xFF00) >> 8) | (urgPointer & 0x00FF) << 8);
+  temp = ((urgPointer & 0xFF00) >> 8) | ((urgPointer & 0x00FF) << 8);
   onesCompAdd(accum,temp); 
   
+  vector<uint8_t> optionsAndPayload;
+  for(size_t i = 0; i < optionList.size(); i++){
+    optionList[i].toBuffer(optionsAndPayload);
+  }
+  for(size_t i = 0; i < payload.size(); i++){
+    optionsAndPayload.push_back(payload[i]);
+  }
+  if(optionsAndPayload.size() & 0x1){
+    optionsAndPayload.push_back(0x00);
+  }
+  
+  for(size_t i = 0; i < optionsAndPayload.size(); i+=2){
+    uint8_t firstByte = optionsAndPayload[i];
+    uint8_t secondByte = optionsAndPayload[i+1];
+    uint16_t word = firstByte | (secondByte << 8);
+    onesCompAdd(accum,word);
+  }
   
   checksum = ~accum;
+  return *this;
 }
 
 
@@ -345,10 +369,12 @@ TcpPacket& TcpPacket::setUrgentPointer(uint16_t urg){
 } 
 TcpPacket& TcpPacket::setOptions(vector<TcpOption> list){
   optionList = list;
+  size = calcSize();
   return *this;
 }
 TcpPacket& TcpPacket::setPayload(vector<uint8_t> data){
   payload = data;
+  size = calcSize();
   return *this;
 }
 
@@ -431,6 +457,8 @@ int TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   for(int i =0; i < dataBytesRemaining; i++){
     payload.push_back(currPointer[i]);
   }
+  
+  size = calcSize();
 
   return 0;
   

@@ -140,7 +140,7 @@ IpPacket activeOpen(char* destAddr, Tcb& b){
   vector<uint8_t> v1;
   TcpPacket p;
   
-  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x87654321).setDataOffset(0x05).setReserved(0x00).setWindow(0x1234).setChecksum(0x4321).setUrgentPointer(0x00).setOptions(v).setPayload(v1);
+  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x87654321).setDataOffset(0x05).setReserved(0x00).setWindow(0x1234).setRealChecksum(b.sourceAddress, b.destAddress).setUrgentPointer(0x00).setOptions(v).setPayload(v1);
   
   IpPacket retPacket;
   int res = sendPacket(b.destAddress, b.sourceAddress, b.destPort, b.sourcePort, p, retPacket);

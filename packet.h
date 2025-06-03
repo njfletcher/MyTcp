@@ -24,12 +24,14 @@ enum class TcpOptionKind{
 class TcpOption{
   public:
     TcpOption() = default;
-    TcpOption(uint8_t k, uint8_t len, uint8_t hasLen);
+    TcpOption(uint8_t k, uint8_t len, uint8_t hasLen, std::vector<uint8_t> data);
+    int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
-    int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
-  private:
     uint16_t getSize();
+  private:
+    uint16_t calcSize();
+    uint16_t size;
     uint8_t kind;
     uint8_t length;
     uint8_t hasLength; 
@@ -78,7 +80,9 @@ class TcpPacket{
     uint16_t getDestPort();
     uint16_t getSrcPort();
   private:
-    uint16_t getSize();
+    uint16_t calcSize();
+    uint16_t size;
+    
     uint8_t getFlag(TcpPacketFlags flag);
     uint8_t getDataOffset();
     uint8_t getReserved();
