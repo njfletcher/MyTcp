@@ -180,8 +180,9 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   onesCompAdd(accum, (sourceAddress & 0x0000FFFF));
   onesCompAdd(accum, (sourceAddress & 0xFFFF0000) >> 16);
   onesCompAdd(accum, (destAddress & 0x0000FFFF));
-  onesCompAdd(accum, (destAddress & 0xFFFF0000) >> 16);
+  onesCompAdd(accum, (destAddress & 0xFFFF0000) >> 16); 
   onesCompAdd(accum, 0x0600);
+  
   uint16_t temp = size;
   temp = ((temp & 0xFF00) >> 8) | ((temp & 0x00FF) << 8);
   onesCompAdd(accum,temp);
@@ -198,6 +199,7 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   temp = ((ackNum & 0x0000FF00) >> 8) | ((ackNum & 0x000000FF) << 8);
   onesCompAdd(accum, temp);
   temp = dataOffReserved | (flags << 8);
+  onesCompAdd(accum,temp);
   temp = ((window & 0xFF00) >> 8) | ((window & 0x00FF) << 8);
   onesCompAdd(accum,temp);
   onesCompAdd(accum, 0x0000);// checksum is replaced by zeros
@@ -401,8 +403,10 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 	buff.push_back(((window & 0xFF00) >> 8) & 0xFF);
 	buff.push_back(window & 0x00FF);
 	
-	buff.push_back(((checksum & 0xFF00) >> 8) & 0xFF);
+	//if this is a real checksum, this will already be in network order from the original calculation.
 	buff.push_back(checksum & 0x00FF);
+	buff.push_back(((checksum & 0xFF00) >> 8) & 0xFF);
+	
 	
 	buff.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
 	buff.push_back(urgPointer & 0x00FF);

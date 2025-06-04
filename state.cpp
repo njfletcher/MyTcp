@@ -126,21 +126,22 @@ int pickOverflowIsn(Tcb& block){
 
 IpPacket activeOpen(char* destAddr, Tcb& b){
 
-  b.destPort = htons(20000);
+  b.destPort = htons(80);
   b.destAddress = inet_addr(destAddr);
-  b.sourcePort = htons(20000);
-  b.sourceAddress = htons(INADDR_ANY);
+  b.sourcePort = htons(80);
+  const char src[14] = "192.168.237.4";
+  b.sourceAddress = inet_addr(src);
   
   //packet ports may be different than block ports(maybe due to some error).
-  uint16_t packetSrcPort = 20000;
-  uint16_t packetDestPort = 20000;
+  uint16_t packetSrcPort = 80;
+  uint16_t packetDestPort = 80;
   pickRealIsn(b);
 
   vector<TcpOption> v;
   vector<uint8_t> v1;
   TcpPacket p;
   
-  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x87654321).setDataOffset(0x05).setReserved(0x00).setWindow(0x1234).setRealChecksum(b.sourceAddress, b.destAddress).setUrgentPointer(0x00).setOptions(v).setPayload(v1);
+  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x12345678).setDataOffset(0x05).setReserved(0x00).setWindow(8192).setUrgentPointer(0x44).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
   
   IpPacket retPacket;
   int res = sendPacket(b.destAddress, b.sourceAddress, b.destPort, b.sourcePort, p, retPacket);
