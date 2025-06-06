@@ -126,11 +126,11 @@ int pickOverflowIsn(Tcb& block){
 
 IpPacket activeOpen(char* destAddr, Tcb& b){
 
-  b.destPort = htons(80);
-  b.destAddress = inet_addr(destAddr);
-  b.sourcePort = htons(80);
+  b.destPort = 80;
+  b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
+  b.sourcePort = 80;
   const char src[14] = "192.168.237.4";
-  b.sourceAddress = inet_addr(src);
+  b.sourceAddress = toAltOrder<uint32_t>(inet_addr(src));
   
   //packet ports may be different than block ports(maybe due to some error).
   uint16_t packetSrcPort = 80;

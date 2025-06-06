@@ -11,6 +11,40 @@ using namespace std;
 
 uint8_t ipBuffer[ipPacketMaxSize];
 
+
+template<typename T>
+T toAltOrder(T val){
+  size_t numBytes = sizeof(T);
+  T retVal = 0;
+  for(size_t i = 0; i < numBytes; i++){
+    int shift = 8 * (numBytes -1 - i);
+    T currByte = (val & (0xFF << (8 * i))) >> (8 * i);
+    retVal = retVal | (currByte << shift);
+  }
+  return retVal;
+}
+
+template<typename T>
+void loadBytes(T val, std::vector<uint8_t>& buff){
+  size_t numBytes = sizeof(T);
+  for(size_t i = 0; i < numBytes; i++){
+    uint8_t currByte = ((val & (0xFF << (8 * i))) >> (8 * i)) & 0xff;
+    buff.push_back(currByte);
+  }
+
+}
+
+//assumes [startIndex, startIndex + wordSize) is valid
+template<typename T>
+T unloadBytes(std::vector<uint8_t>& buff, int startIndex){
+  T retVal = 0;
+  size_t numBytes = sizeof(T);
+  for(size_t i = 0; i < numBytes; i++){
+    retVal = retVal | (buffer[startIndex + i] << (8 * i));
+  }
+  return retVal;
+}
+
 int sendPacket(uint32_t destAddr, uint32_t sourceAddr, uint16_t destPort, uint16_t sourcePort, TcpPacket& p, IpPacket& packet){  
   
   	struct sockaddr_in dest;
@@ -23,12 +57,12 @@ int sendPacket(uint32_t destAddr, uint32_t sourceAddr, uint16_t destPort, uint16
 	}
 		
 	dest.sin_family = AF_INET;
-        dest.sin_port = destPort;
-        dest.sin_addr.s_addr = destAddr;
+        dest.sin_port = toAltOrder<uint16_t>(destPort);
+        dest.sin_addr.s_addr = toAltOrder<uint32_t>(destAddr);
         
         serv.sin_family = AF_INET;
-        serv.sin_port = sourcePort;
-        serv.sin_addr.s_addr = sourceAddr;
+        serv.sin_port = toAltOrder<uint16_t>(sourcePort);
+        serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
                 
 	if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
                 

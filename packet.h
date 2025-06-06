@@ -79,6 +79,8 @@ class TcpPacket{
 
     uint16_t getDestPort();
     uint16_t getSrcPort();
+    
+    //all multi-byte fields are guaranteed to be in host byte order.
   private:
     uint16_t calcSize();
     uint16_t size;
@@ -187,8 +189,8 @@ class IpPacket{
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
 
+  //all multi-byte fields are guaranteed to be in host byte order.
   private:
-  
     uint8_t getVersion();
     uint8_t getIHL();
     uint8_t getDscp();

@@ -173,7 +173,6 @@ uint16_t TcpPacket::calcSize(){
   return sz;
 }
 
-//assumes addresses are already in network byte order.
 TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
   
   uint16_t accum = 0;
@@ -181,30 +180,21 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   onesCompAdd(accum, (sourceAddress & 0xFFFF0000) >> 16);
   onesCompAdd(accum, (destAddress & 0x0000FFFF));
   onesCompAdd(accum, (destAddress & 0xFFFF0000) >> 16); 
-  onesCompAdd(accum, 0x0600);
+  onesCompAdd(accum, 0x0006);
   
-  uint16_t temp = size;
-  temp = ((temp & 0xFF00) >> 8) | ((temp & 0x00FF) << 8);
-  onesCompAdd(accum,temp);
-  temp = ((sourcePort & 0xFF00) >> 8) | ((sourcePort & 0x00FF) << 8);
-  onesCompAdd(accum, temp);
-  temp = ((destPort & 0xFF00) >> 8) | ((destPort & 0x00FF) << 8);
-  onesCompAdd(accum, temp);
-  temp = ((seqNum & 0xFF000000) >> 24) | ((seqNum & 0x00FF0000) >> 8);
-  onesCompAdd(accum, temp);
-  temp = ((seqNum & 0x0000FF00) >> 8) | ((seqNum & 0x000000FF) << 8);
-  onesCompAdd(accum, temp);
-  temp = ((ackNum & 0xFF000000) >> 24) | ((ackNum & 0x00FF0000) >> 8);
-  onesCompAdd(accum, temp);
-  temp = ((ackNum & 0x0000FF00) >> 8) | ((ackNum & 0x000000FF) << 8);
-  onesCompAdd(accum, temp);
-  temp = dataOffReserved | (flags << 8);
-  onesCompAdd(accum,temp);
-  temp = ((window & 0xFF00) >> 8) | ((window & 0x00FF) << 8);
-  onesCompAdd(accum,temp);
+  onesCompAdd(accum,size);
+  onesCompAdd(accum,sourcePort);
+  onesCompAdd(accum,destPort);
+  onesCompAdd(accum, seqNum & 0x0000FFFF);
+  onesCompAdd(accum, (seqNum & 0xFFFF0000) >> 16);
+  
+  onesCompAdd(accum, ackNum & 0x0000FFFF);
+  onesCompAdd(accum, (ackNum & 0xFFFF0000) >> 16);
+  
+  onesCompAdd(accum, (dataOffReserved << 8) | flags);
+  onesCompAdd(accum, window);
   onesCompAdd(accum, 0x0000);// checksum is replaced by zeros
-  temp = ((urgPointer & 0xFF00) >> 8) | ((urgPointer & 0x00FF) << 8);
-  onesCompAdd(accum,temp); 
+  onesCompAdd(accum, urgPointer);
   
   vector<uint8_t> optionsAndPayload;
   for(size_t i = 0; i < optionList.size(); i++){
@@ -220,7 +210,7 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   for(size_t i = 0; i < optionsAndPayload.size(); i+=2){
     uint8_t firstByte = optionsAndPayload[i];
     uint8_t secondByte = optionsAndPayload[i+1];
-    uint16_t word = firstByte | (secondByte << 8);
+    uint16_t word = (firstByte << 8) | secondByte;
     onesCompAdd(accum,word);
   }
   
@@ -381,40 +371,21 @@ TcpPacket& TcpPacket::setPayload(vector<uint8_t> data){
 }
 
 void TcpPacket::toBuffer(vector<uint8_t>& buff){
-	buff.push_back(((sourcePort & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(sourcePort & 0x00FF);
-	
-	buff.push_back(((destPort & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(destPort & 0x00FF);
 
-	buff.push_back(((seqNum & 0xFF000000) >> 24) & 0xFF);
-	buff.push_back(((seqNum & 0x00FF0000) >> 16) & 0xFF);
-	buff.push_back(((seqNum & 0x0000FF00) >> 8) & 0xFF);
-	buff.push_back(seqNum & 0x000000FF);
+        loadBytes<uint16_t>(toAltOrder<uint16_t>(sourcePort), buff);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(destPort), buff);
+        loadBytes<uint32_t>(toAltOrder<uint32_t>(seqNum), buff);  
+        loadBytes<uint32_t>(toAltOrder<uint32_t>(ackNum), buff);
 
-	buff.push_back(((ackNum & 0xFF000000) >> 24) & 0xFF);
-	buff.push_back(((ackNum & 0x00FF0000) >> 16) & 0xFF);
-	buff.push_back(((ackNum & 0x0000FF00) >> 8) & 0xFF);
-	buff.push_back(ackNum & 0x000000FF);
-	
 	buff.push_back(dataOffReserved);
 	buff.push_back(flags);
 	
-	buff.push_back(((window & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(window & 0x00FF);
-	
-	//if this is a real checksum, this will already be in network order from the original calculation.
-	buff.push_back(checksum & 0x00FF);
-	buff.push_back(((checksum & 0xFF00) >> 8) & 0xFF);
-	
-	
-	buff.push_back(((urgPointer & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(urgPointer & 0x00FF);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(window), buff);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(checkSum), buff);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(urgPointer), buff);
 	
 	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);
-		
 	for(size_t i = 0; i < payload.size(); i++) buff.push_back(payload[i]);
-      
 }
 
 int TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
@@ -422,20 +393,16 @@ int TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   if(numBytes < tcpMinHeaderLen){
     return -1;
   }
-  
-  sourcePort = (static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]);
-  destPort = (static_cast<uint16_t>(buffer[2]) << 8) | static_cast<uint16_t>(buffer[3]);
 
-  seqNum = (static_cast<uint32_t>(buffer[4]) << 24) | (static_cast<uint32_t>(buffer[5]) << 16) | (static_cast<uint32_t>(buffer[6]) << 8) | static_cast<uint32_t>(buffer[7]);
-  
-  ackNum = (static_cast<uint32_t>(buffer[8]) << 24) | (static_cast<uint32_t>(buffer[9]) << 16) | (static_cast<uint32_t>(buffer[10]) << 8) | static_cast<uint32_t>(buffer[11]);
-  
+  sourcePort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,0));
+  destPort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,2));
+  seqNum = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,4));
+  ackNum = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,8));
   dataOffReserved = buffer[12];
   flags = buffer[13];
-  window = (static_cast<uint16_t>(buffer[14]) << 8) | static_cast<uint16_t>(buffer[15]);
-  
-  checksum = (static_cast<uint16_t>(buffer[16]) << 8) | static_cast<uint16_t>(buffer[17]);
-  urgPointer = (static_cast<uint16_t>(buffer[18]) << 8) | static_cast<uint16_t>(buffer[19]);
+  window = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,14));
+  checksum = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,16));
+  urgPointer = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,18));
 
   uint8_t offsetConv = getDataOffset() * 4;
   if(offsetConv < 20 || offsetConv > numBytes) return -1;
@@ -465,7 +432,6 @@ int TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   size = calcSize();
 
   return 0;
-  
 }
 
 
@@ -622,35 +588,19 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
 	buff.push_back(versionIHL);
 	buff.push_back(dscpEcn);
 	
-	buff.push_back(((totalLength & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(totalLength & 0x00FF);
-	
-	buff.push_back(((identification & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(identification & 0x00FF);
-	
-	buff.push_back(((flagsFragOffset & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(flagsFragOffset & 0x00FF);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(totalLength), buff); 
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(identification), buff);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(flagsFragOffset), buff);
 	
 	buff.push_back(ttl);
 	buff.push_back(protocol);
 	
-	buff.push_back(((headerChecksum & 0xFF00) >> 8) & 0xFF);
-	buff.push_back(headerChecksum & 0x00FF);
-
-	buff.push_back(((sourceAddress & 0xFF000000) >> 24) & 0xFF);
-	buff.push_back(((sourceAddress & 0x00FF0000) >> 16) & 0xFF);
-	buff.push_back(((sourceAddress & 0x0000FF00) >> 8) & 0xFF);
-	buff.push_back(sourceAddress & 0x000000FF);
-
-	buff.push_back(((destAddress & 0xFF000000) >> 24) & 0xFF);
-	buff.push_back(((destAddress & 0x00FF0000) >> 16) & 0xFF);
-	buff.push_back(((destAddress & 0x0000FF00) >> 8) & 0xFF);
-	buff.push_back(destAddress & 0x000000FF);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(headerChecksum), buff);
+	loadBytes<uint32_t>(toAltOrder<uint32_t>(sourceAddress), buff);
+        loadBytes<uint32_t>(toAltOrder<uint32_t>(destAddress), buff);
 		
 	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);	
-	
         tcpPacket.toBuffer(buff);
-
 }
 
 int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
@@ -661,14 +611,14 @@ int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   versionIHL = buffer[0];
   dscpEcn = buffer[1];
-  totalLength = (static_cast<uint16_t>(buffer[2]) << 8) | static_cast<uint16_t>(buffer[3]);
-  identification = (static_cast<uint16_t>(buffer[4]) << 8) | static_cast<uint16_t>(buffer[5]);
-  flagsFragOffset = (static_cast<uint16_t>(buffer[6]) << 8) | static_cast<uint16_t>(buffer[7]);
+  totalLength = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,2));
+  identification = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,4));
+  flagsFragOffset = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,6));
   ttl = buffer[8];
   protocol = buffer[9];
-  headerChecksum = (static_cast<uint16_t>(buffer[10]) << 8) | static_cast<uint16_t>(buffer[11]);
-  sourceAddress = (static_cast<uint32_t>(buffer[12]) << 24) | (static_cast<uint32_t>(buffer[13]) << 16) | (static_cast<uint32_t>(buffer[14]) << 8) | static_cast<uint32_t>(buffer[15]);
-  destAddress = (static_cast<uint32_t>(buffer[16]) << 24) | (static_cast<uint32_t>(buffer[17]) << 16) | (static_cast<uint32_t>(buffer[18]) << 8) | static_cast<uint32_t>(buffer[19]);
+  headerChecksum = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,10));
+  sourceAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,12));
+  destAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,16));
   
   uint8_t ihlConv = getIHL() * 4;
   if(ihlConv < 20 || ihlConv > numBytes) return -1;

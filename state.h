@@ -32,7 +32,7 @@ class Tcb{
   public:
     Tcb() = default;
     
-    //addresses and ports are in network order
+    //all multi-byte fields are guaranteed to be in host order.
     uint32_t sourceAddress; 
     uint32_t destAddress;
     uint16_t sourcePort;
