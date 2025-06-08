@@ -79,6 +79,8 @@ class TcpPacket{
 
     uint16_t getDestPort();
     uint16_t getSrcPort();
+    uint32_t getSeqNum();
+    uint16_t getWindow();
     
     //all multi-byte fields are guaranteed to be in host byte order.
   private:
@@ -188,7 +190,7 @@ class IpPacket{
     int fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
-
+    TcpPacket& getTcpPacket();
   //all multi-byte fields are guaranteed to be in host byte order.
   private:
     uint8_t getVersion();
@@ -197,7 +199,6 @@ class IpPacket{
     uint8_t getEcn();
     uint8_t getFlag(IpPacketFlags flag);
     uint16_t getFragOffset();
-    
     
     uint8_t versionIHL;
     uint8_t dscpEcn;

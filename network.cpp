@@ -11,92 +11,62 @@ using namespace std;
 
 uint8_t ipBuffer[ipPacketMaxSize];
 
-
-template<typename T>
-T toAltOrder(T val){
-  size_t numBytes = sizeof(T);
-  T retVal = 0;
-  for(size_t i = 0; i < numBytes; i++){
-    int shift = 8 * (numBytes -1 - i);
-    T currByte = (val & (0xFF << (8 * i))) >> (8 * i);
-    retVal = retVal | (currByte << shift);
-  }
-  return retVal;
-}
-
-template<typename T>
-void loadBytes(T val, std::vector<uint8_t>& buff){
-  size_t numBytes = sizeof(T);
-  for(size_t i = 0; i < numBytes; i++){
-    uint8_t currByte = ((val & (0xFF << (8 * i))) >> (8 * i)) & 0xff;
-    buff.push_back(currByte);
-  }
-
-}
-
-//assumes [startIndex, startIndex + wordSize) is valid
-template<typename T>
-T unloadBytes(std::vector<uint8_t>& buff, int startIndex){
-  T retVal = 0;
-  size_t numBytes = sizeof(T);
-  for(size_t i = 0; i < numBytes; i++){
-    retVal = retVal | (buffer[startIndex + i] << (8 * i));
-  }
-  return retVal;
-}
-
-int sendPacket(uint32_t destAddr, uint32_t sourceAddr, uint16_t destPort, uint16_t sourcePort, TcpPacket& p, IpPacket& packet){  
+//returns socket, or -1 if fail
+int bindSocket(uint32_t sourceAddr){
+  struct sockaddr_in serv;
+  serv.sin_family = AF_INET;
+  serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
   
-  	struct sockaddr_in dest;
-	struct sockaddr_in serv;
-	int s = socket(AF_INET, SOCK_RAW, TCP_PROTO);
+  int s = socket(AF_INET, SOCK_RAW, TCP_PROTO);	
+  if(s < 0){
+      perror("Cannot create socket. ");
+      return -1;
+  }
+	    
+  if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
+    perror("Cannot bind socket to server port. ");
+    return -1;     
+  }
+  
+  return s;
+
+}
+
+int sendPacket(int sock, uint32_t destAddr, TcpPacket& p){  
+  struct sockaddr_in dest;
+  dest.sin_family = AF_INET;
+  dest.sin_addr.s_addr = toAltOrder<uint32_t>(destAddr);
+  
+  vector<uint8_t> buffer;
+  p.toBuffer(buffer);
+  for(size_t i = 0; i < buffer.size(); i++){
+    ipBuffer[i] = buffer[i];
+  }
+  ssize_t numBytes = sendto(sock, ipBuffer, buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
+  if(numBytes < 0){
+    perror("Cannot send message. ");
+    return -1;
+  }
+  
+  return 0;
+}
+
+int recPacket(int sock, IpPacket& packet){
+
+  ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
 	
-	if(s < 0){
-		perror("Cannot create socket. ");
-		return -1;
-	}
-		
-	dest.sin_family = AF_INET;
-        dest.sin_port = toAltOrder<uint16_t>(destPort);
-        dest.sin_addr.s_addr = toAltOrder<uint32_t>(destAddr);
-        
-        serv.sin_family = AF_INET;
-        serv.sin_port = toAltOrder<uint16_t>(sourcePort);
-        serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
-                
-	if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
-                
-                perror("Cannot bind socket to server port. ");
-         	return -1;     
-        }
-        
-        vector<uint8_t> buffer;
-        p.toBuffer(buffer);
-        for(size_t i = 0; i < buffer.size(); i++){
-          ipBuffer[i] = buffer[i];
-        }
-                        
-        ssize_t numBytes = sendto(s, ipBuffer, buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
+  if(numRec < 0){
+    perror("Cannot receive message. ");
+    return -1;
+  }   
 	
-	if(numBytes < 0){
-		perror("Cannot send message. ");
-		return -1;
-	}
+  int ret = packet.fromBuffer(ipBuffer, numRec);
+  if(ret < 0){
+    perror("Bad packet. ");
+    return -1;
+  }
 	
-	ssize_t numRec = recvfrom(s,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
-	
-	if(numRec < 0){
-		perror("Cannot receive message. ");
-		return -1;
-	}   
-	
-	int ret = packet.fromBuffer(ipBuffer, numRec);
-	if(ret < 0){
-	      perror("Bad packet. ");
-	      return -1;
-	}
-	
-	return 0;
+  return 0;
 }	
       	
       	

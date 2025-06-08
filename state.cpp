@@ -124,28 +124,44 @@ int pickOverflowIsn(Tcb& block){
   return 0;
 }
 
-IpPacket activeOpen(char* destAddr, Tcb& b){
+void activeOpen(char* destAddr, Tcb& b){
 
-  b.destPort = 80;
+  b.destPort = 22;
   b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
-  b.sourcePort = 80;
+  b.sourcePort = 22;
   const char src[14] = "192.168.237.4";
   b.sourceAddress = toAltOrder<uint32_t>(inet_addr(src));
   
   //packet ports may be different than block ports(maybe due to some error).
-  uint16_t packetSrcPort = 80;
-  uint16_t packetDestPort = 80;
+  uint16_t packetSrcPort = 22;
+  uint16_t packetDestPort = 22;
   pickRealIsn(b);
 
   vector<TcpOption> v;
   vector<uint8_t> v1;
   TcpPacket p;
+  b.rWnd = 8192;
   
-  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x12345678).setDataOffset(0x05).setReserved(0x00).setWindow(8192).setUrgentPointer(0x44).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
+  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
   
   IpPacket retPacket;
-  int res = sendPacket(b.destAddress, b.sourceAddress, b.destPort, b.sourcePort, p, retPacket);
-  return retPacket; 
+  int sock = bindSocket(b.sourceAddress);
+  if(sock != -1){
+    if(sendPacket(sock,b.destAddress, p) != -1){
+    
+      b.sUna = p.getSeqNum();
+      b.sNxt = p.getSeqNum() + 1;
+    
+      if(recPacket(sock,retPacket) != -1){
+        TcpPacket& p1 = retPacket.getTcpPacket();
+        b.sWnd = p1.getWindow();
+        b.irs = p1.getSeqNum();
+        
+      }
+      
+      
+    }
+  }
   
 }
 

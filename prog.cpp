@@ -15,8 +15,6 @@ int main(int argc, char* argv[]){
 	
 	cout << argv[1] << endl;
         Tcb b;
-        IpPacket p = activeOpen(argv[1], b);
-        p.print();
-        
+        activeOpen(argv[1], b);
 	return 0;
 }

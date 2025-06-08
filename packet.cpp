@@ -1,4 +1,5 @@
 #include "packet.h"
+#include "network.h"
 #include <iostream>
 
 using namespace std;
@@ -279,7 +280,6 @@ uint8_t TcpPacket::getFlag(TcpPacketFlags flag){
 	return (flags >> static_cast<int>(flag)) & 0x1;
 }
 
-
 uint8_t TcpPacket::getDataOffset(){
 
 	return (dataOffReserved & 0xf0) >> 4;
@@ -288,16 +288,10 @@ uint8_t TcpPacket::getReserved(){
 
         return (dataOffReserved & 0xf);
 }
-
-uint16_t TcpPacket::getDestPort(){
-
-	return destPort;
-}
-
-uint16_t TcpPacket::getSrcPort(){
-	
-	return sourcePort;
-}
+uint16_t TcpPacket::getDestPort(){return destPort;}
+uint16_t TcpPacket::getSrcPort(){return sourcePort;}
+uint32_t TcpPacket::getSeqNum(){return seqNum;}
+uint16_t TcpPacket::getWindow(){return window;}
 
 void TcpPacket::print(){
 
@@ -381,7 +375,7 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 	buff.push_back(flags);
 	
 	loadBytes<uint16_t>(toAltOrder<uint16_t>(window), buff);
-	loadBytes<uint16_t>(toAltOrder<uint16_t>(checkSum), buff);
+	loadBytes<uint16_t>(toAltOrder<uint16_t>(checksum), buff);
 	loadBytes<uint16_t>(toAltOrder<uint16_t>(urgPointer), buff);
 	
 	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);
@@ -602,6 +596,8 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
 	for(size_t i = 0; i < optionList.size(); i++) optionList[i].toBuffer(buff);	
         tcpPacket.toBuffer(buff);
 }
+
+TcpPacket& IpPacket::getTcpPacket(){ return tcpPacket;}
 
 int IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
