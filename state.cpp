@@ -128,12 +128,12 @@ void activeOpen(char* destAddr, Tcb& b){
 
   b.destPort = 22;
   b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
-  b.sourcePort = 22;
-  const char src[14] = "192.168.237.4";
+  b.sourcePort = 8878;
+  const char src[14] = "192.168.237.7";
   b.sourceAddress = toAltOrder<uint32_t>(inet_addr(src));
   
   //packet ports may be different than block ports(maybe due to some error).
-  uint16_t packetSrcPort = 22;
+  uint16_t packetSrcPort = 8878;
   uint16_t packetDestPort = 22;
   pickRealIsn(b);
 
@@ -156,6 +156,24 @@ void activeOpen(char* destAddr, Tcb& b){
         TcpPacket& p1 = retPacket.getTcpPacket();
         b.sWnd = p1.getWindow();
         b.irs = p1.getSeqNum();
+        b.rNxt = p1.getSeqNum() + 1;
+        
+        TcpPacket p2;
+        p2.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
+        p2.print();
+        
+        if(sendPacket(sock,b.destAddress,p2) != -1){
+        
+            //b.sUna and b.sNxt stays same because ack does not take up seq num space
+            IpPacket retPacket1;
+            if(recPacket(sock,retPacket1) != -1){
+                      TcpPacket& p3 = retPacket.getTcpPacket();
+                      b.rNxt = p3.getSeqNum() + 1;
+              
+            }
+        
+        }
+        
         
       }
       

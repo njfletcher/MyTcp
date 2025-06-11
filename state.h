@@ -38,12 +38,6 @@ class Tcb{
     uint16_t sourcePort;
     uint16_t destPort;
 
-    int securityLevel;
-    int compartmentCat; 
-
-    uint8_t* sendBuffer;
-    uint8_t* recBuffer;
-
     uint8_t* retransmit;
     uint8_t* currSegment;
 
