@@ -1,3 +1,8 @@
 //to avoid os kernel from getting in the way
+sudo iptables -A OUTPUT -p tcp -m mark ! --mark 132322 -j DROP
+sudo iptables -t raw -I PREROUTING -i enp0s3 -j NOTRACK
+sudo iptables -t raw -I OUTPUT -o enp0s3 -j NOTRACK
 
-
+sudo iptables -D OUTPUT -p tcp -m mark ! --mark 132322 -j DROP
+sudo iptables -t raw -D PREROUTING -i enp0s3 -j NOTRACK
+sudo iptables -t raw -D OUTPUT -o enp0s3 -j NOTRACK

@@ -22,12 +22,12 @@ int bindSocket(uint32_t sourceAddr){
       perror("Cannot create socket. ");
       return -1;
   }
-  
-  //if(setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, "veth0", 5) < 0){
-  //  perror("Cannot bind to dummy interface");
-  //  return -1;
-  //}
-	    
+  int mark = 132322;
+  if(setsockopt(s,SOL_SOCKET,SO_MARK,&mark,sizeof(mark)) < 0){
+    perror("Cannot mark socket. ");
+    return -1;
+  }
+    
   if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
     perror("Cannot bind socket to server port. ");
     return -1;     

@@ -128,12 +128,12 @@ void activeOpen(char* destAddr, Tcb& b){
 
   b.destPort = 22;
   b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
-  b.sourcePort = 8878;
-  const char src[14] = "192.168.237.7";
+  b.sourcePort = 8879;
+  const char src[14] = "192.168.237.4";
   b.sourceAddress = toAltOrder<uint32_t>(inet_addr(src));
   
   //packet ports may be different than block ports(maybe due to some error).
-  uint16_t packetSrcPort = 8878;
+  uint16_t packetSrcPort = 8879;
   uint16_t packetDestPort = 22;
   pickRealIsn(b);
 
@@ -147,6 +147,7 @@ void activeOpen(char* destAddr, Tcb& b){
   IpPacket retPacket;
   int sock = bindSocket(b.sourceAddress);
   if(sock != -1){
+  
     if(sendPacket(sock,b.destAddress, p) != -1){
     
       b.sUna = p.getSeqNum();
