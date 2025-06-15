@@ -124,7 +124,93 @@ int pickOverflowIsn(Tcb& block){
   return 0;
 }
 
-void activeOpen(char* destAddr, Tcb& b){
+
+void synReceived(Tcb& b, int socket){
+}
+
+
+
+int verifyRecWindow(uint32_t rWnd, uint32_t rNxt, uint32_t seqNum, uint32_t segLen){
+
+  if(seqLen > 0){
+    if(rWnd >0){
+      uint32_t lastByte = seqNum + segLen -1;
+      return (rNxt <= lastByte && lastByte < (rNxt + rWnd));
+    
+    }
+    else return 0;
+  
+  }
+  else{
+    if(rWnd > 0){
+      return (rNxt <= seqNum && seqNum < + (rWnd + rNxt));
+    }
+    else{
+      return (seqNum == rNxt);
+    }
+  }
+
+}
+
+void synSent(Tcb& b, int socket){
+
+  IpPacket retPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  TcpPacket sPacket;
+  
+  if(recPacket(socket,retPacket) != -1){
+    TcpPacket& p = retPacket.getTcpPacket();
+    
+    uint32_t segLen = p.payload.size() + p.getFlag(TcpPacketFlags::syn) + p.getFlag(TcpPacketFlags::fin);
+    b.sWnd = p.getWindow();
+    b.irs = p.getSeqNum();
+    b.rNxt = p.getSeqNum() + segLen;
+    
+    //verify rec window
+    
+    if(p.getFlag(TcpPacketFlags::syn)){
+    
+      if(p.getFlag(TcpPacketFlags::ack)){
+      
+        //verify ack
+      
+      
+      
+        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+        if(sendPacket(socket,b.destAddress,sPacket) != -1){
+            b.sUna = sPacket.getSeqNum() + sPacket.payload.size();
+            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+            established(b,socket);
+        }
+    
+        //established
+      }
+      else{
+        //simultaneous connection attempt
+        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+        if(sendPacket(socket,b.destAddress,sPacket) != -1){
+            b.sUna = sPacket.getSeqNum() + sPacket.payload.size();
+            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+            synReceived(b,socket);
+        }
+      }
+    
+    }
+    else{
+      
+      //error or possible reset
+    }
+    
+    
+        
+}
+
+void closed(char* destAddr, Tcb& b, int passive){
 
   b.destPort = 22;
   b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
@@ -144,43 +230,16 @@ void activeOpen(char* destAddr, Tcb& b){
   
   p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
   
-  IpPacket retPacket;
   int sock = bindSocket(b.sourceAddress);
   if(sock != -1){
-  
     if(sendPacket(sock,b.destAddress, p) != -1){
-    
       b.sUna = p.getSeqNum();
-      b.sNxt = p.getSeqNum() + 1;
-    
-      if(recPacket(sock,retPacket) != -1){
-        TcpPacket& p1 = retPacket.getTcpPacket();
-        b.sWnd = p1.getWindow();
-        b.irs = p1.getSeqNum();
-        b.rNxt = p1.getSeqNum() + 1;
-        
-        TcpPacket p2;
-        p2.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
-        p2.print();
-        
-        if(sendPacket(sock,b.destAddress,p2) != -1){
-        
-            //b.sUna and b.sNxt stays same because ack does not take up seq num space
-            IpPacket retPacket1;
-            if(recPacket(sock,retPacket1) != -1){
-                      TcpPacket& p3 = retPacket.getTcpPacket();
-                      b.rNxt = p3.getSeqNum() + 1;
-              
-            }
-        
-        }
-        
-        
-      }
-      
-      
+      b.sNxt = p.getSeqNum() + p.payload.size() + 1; //syn consumes 1
+      b.retransmit.push_back(p);
+      synSent(b,sock);
     }
   }
   
 }
+
 

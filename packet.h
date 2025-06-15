@@ -82,6 +82,9 @@ class TcpPacket{
     uint32_t getSeqNum();
     uint16_t getWindow();
     
+    std::vector<uint8_t> payload;
+    std::vector<TcpOption> optionList;
+    
     //all multi-byte fields are guaranteed to be in host byte order.
   private:
     uint16_t calcSize();
@@ -102,8 +105,6 @@ class TcpPacket{
 
     uint16_t checksum;
     uint16_t urgPointer;
-    std::vector<TcpOption> optionList;
-    std::vector<uint8_t> payload;
 
 };
 

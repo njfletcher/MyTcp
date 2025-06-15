@@ -38,9 +38,8 @@ class Tcb{
     uint16_t sourcePort;
     uint16_t destPort;
 
-    uint8_t* retransmit;
-    uint8_t* currSegment;
-
+    std::vector<TcpPacket> retransmit;
+    
     uint32_t sUna; // first seq num of data that has not been acknowledged by my peer.
     uint32_t sNxt; // first seq num of data that has not been sent by me.
     uint32_t sWnd; // window specified by my peer. how many bytes they can hold in buffer.
@@ -56,11 +55,11 @@ class Tcb{
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
 
-    uint32_t segSeq;
-    uint32_t segAck;
-    uint32_t segLen;
-    uint32_t segWnd;
-    uint32_t segUp;
+    //uint32_t segSeq;
+    //uint32_t segAck;
+    //uint32_t segLen;
+    //uint32_t segWnd;
+    //uint32_t segUp;
   
 };
 
