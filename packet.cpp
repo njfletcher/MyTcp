@@ -291,6 +291,7 @@ uint8_t TcpPacket::getReserved(){
 uint16_t TcpPacket::getDestPort(){return destPort;}
 uint16_t TcpPacket::getSrcPort(){return sourcePort;}
 uint32_t TcpPacket::getSeqNum(){return seqNum;}
+uint32_t TcpPacket::getAckNum(){return ackNum;}
 uint16_t TcpPacket::getWindow(){return window;}
 
 void TcpPacket::print(){
@@ -315,6 +316,10 @@ void TcpPacket::print(){
 	cout << " ]" << endl;
 	cout << "----------------------" << endl;
 
+}
+
+uint32_t TcpPacket::getSegSize(){
+  return payload.size() + getFlag(TcpPacketFlags::syn) + getFlag(TcpPacketFlags::fin);
 }
 
 TcpPacket& TcpPacket::setSrcPort(uint16_t source){

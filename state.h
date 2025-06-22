@@ -54,20 +54,10 @@ class Tcb{
     uint32_t rWnd; // window advertised by me to my peer. how many bytes i can hold in buffer.
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
-
-    //uint32_t segSeq;
-    //uint32_t segAck;
-    //uint32_t segLen;
-    //uint32_t segWnd;
-    //uint32_t segUp;
   
 };
 
 int pickRealIsn(Tcb& block);
-int pickInsecureIsn(Tcb& block);
-int pickPrevIsn(Tcb& block, uint32_t prev);
-int pickOverflowIsn(Tcb& block);
-
 void activeOpen(char* destAddr, Tcb& b);
 
 

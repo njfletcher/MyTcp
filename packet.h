@@ -80,8 +80,10 @@ class TcpPacket{
     uint16_t getDestPort();
     uint16_t getSrcPort();
     uint32_t getSeqNum();
+    uint32_t getAckNum();
     uint16_t getWindow();
     
+    uint32_t getSegSize();
     std::vector<uint8_t> payload;
     std::vector<TcpOption> optionList;
     
