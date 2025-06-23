@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "packet.h"
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
+#define portThreshold 30000
 
 enum class States{
   Listen,

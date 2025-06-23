@@ -10,9 +10,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "network.h"
+#include <unordered_map>
+#include <utility>
 
 using namespace std;
-
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -135,6 +136,45 @@ int verifyRecWindow(uint32_t rWnd, uint32_t rNxt, uint32_t seqNum, uint32_t segL
 
 }
 
+void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connections, char* destAddr, char* srcAddr, int socket){
+  
+  Tcb b;
+  b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
+  b.sourceAddress = toAltOrder<uint32_t>(inet_addr(srcAddr));
+  
+  char validConnection = 0;
+  while(!validConnection){
+    unsigned char srcPort[4];
+    if(RAND_bytes(srcPort, 4) < 1){
+      ERR_print_errors_fp(stderr);
+      return -1;
+    }
+    unsigned char dstPort[4];
+    if(RAND_bytes(dstPort, 1) < 1){
+      ERR_print_errors_fp(stderr);
+      return -1;
+    }
+    uint32_t sPortConv = unloadBytes<uint32_t>(srcPort,0);
+    uint32_t dPortConv = unloadBytes<uint32_t>(dstPort,0);
+    if(sPortConv < portThreshold) sPortConv = sPortConv + portThreshold;
+    if(dPortConv < portThreshold) dPortConv = dPortConv + portThreshold;
+    pair<uint32_t, uint32_t> p(sPortConv, dPortConv);
+    if(!connections.contains(p)){
+      connections[p] = 1;
+      validConnection = 1;
+    }
+  }
+  
+  unsigned char passive = 0;
+  if(RAND_bytes(passive, 1) < 1){
+    ERR_print_errors_fp(stderr);
+    return -1;
+  }
+  passive = passive % 2;
+  closed(b, passive, socket);
+  
+}
+
 void established(Tcb& b, int socket){
 
 }
@@ -231,35 +271,68 @@ int synSent(Tcb& b, int socket){
    
 }
 
-void closed(char* destAddr, Tcb& b, int passive){
+void listen(Tcb& b, int socket){
 
-  b.destPort = 22;
-  b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
-  b.sourcePort = 8879;
-  const char src[14] = "192.168.237.4";
-  b.sourceAddress = toAltOrder<uint32_t>(inet_addr(src));
+  IpPacket retPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  TcpPacket sPacket;
   
-  //packet ports may be different than block ports(maybe due to some error).
-  uint16_t packetSrcPort = 8879;
-  uint16_t packetDestPort = 22;
-  pickRealIsn(b);
+  if(recPacket(socket,retPacket) != -1){
+    TcpPacket& p = retPacket.getTcpPacket();
+    
+    uint32_t segLen = p.getSegSize();
+    b.sWnd = p.getWindow();
+    b.irs = p.getSeqNum();
+    
+    //if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+    //  return -1;
+    //}
+    b.rNxt = p.getSeqNum() + segLen + 1;
+    
+    if(p.getFlag(TcpPacketFlags::syn)){
+    
+      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+      if(sendPacket(socket,b.destAddress,sPacket) != -1){
+          b.sUna = sPacket.getSeqNum();
+          b.sNxt = sPacket.getSeqNum() + sPacket.getSegSize();
+          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+          synReceived(b,socket);
+      }
 
-  vector<TcpOption> v;
-  vector<uint8_t> v1;
-  TcpPacket p;
+    }
+    else{
+      
+      //error or possible reset
+    }
+
+  }
+  
+}
+
+
+void closed(Tcb& b, int passive, int socket){
+  
+  pickRealIsn(b);
   b.rWnd = 8192;
   
-  p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress, b.destAddress);
+  if(!passive){
+    vector<TcpOption> v;
+    vector<uint8_t> v1;
+    TcpPacket p;
   
-  int sock = bindSocket(b.sourceAddress);
-  if(sock != -1){
-    if(sendPacket(sock,b.destAddress, p) != -1){
+    p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,   0x0).setSrcPort(b.sourcePort).setDestPort(b.destPort).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress,   b.destAddress);
+  
+    if(sendPacket(socket,b.destAddress, p) != -1){
       b.sUna = p.getSeqNum();
-      b.sNxt = p.getSeqNum() + p.payload.size() + 1; //syn consumes 1
+      b.sNxt = p.getSeqNum() + p.getSegSize();
       b.retransmit.push_back(p);
-      synSent(b,sock);
+      synSent(b,socket);
     }
+  
   }
+  else listen(b, socket);
   
 }
 
