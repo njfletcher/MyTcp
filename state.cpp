@@ -11,9 +11,11 @@
 #include <arpa/inet.h>
 #include "network.h"
 #include <unordered_map>
-#include <utility>
+#include <tuple>
+#include <poll.h>
 
 using namespace std;
+
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -134,6 +136,68 @@ int verifyRecWindow(uint32_t rWnd, uint32_t rNxt, uint32_t seqNum, uint32_t segL
     }
   }
 
+}
+
+
+
+/*
+Upon notification of incoming packet on interface, this method
+checks details of the packet and gives it to correct connection, or sends reset if it does not belong
+to a valid connection
+*/
+
+void multiplexIncoming(unordered_map<ConnectionTuple, Tcb>& connections, int socket){
+
+  IpPacket retPacket;
+  if(recPacket(socket, retPacket) != -1){
+    TcpPacket& p = retPacket.getTcpPacket();
+    
+    uint32_t sourceAddress = retPacket.getSrcAddr();
+    uint32_t destAddress = retPacket.getDstAddr();
+    uint16_t sourcePort = p.getSrcPort();
+    uint16_t destPort = p.getDestPort();
+    
+    ConnectionTuple t(sourceAddress, sourcePort, destAddress, destPort);
+    if(connections.contains(t)){
+      Tcb& b = connections[t];
+      b.currentState(p,socket);
+    }
+    //fictional closed state
+    else{
+      sendReset(socket, p);
+    }
+  
+  }
+  
+}
+
+/*
+Starts the tcp implementation, equivalent to a tcp module being loaded.
+the interface socket, polling of this socket, and all connections start at this point.
+returns -1 if failure, otherwise will run until unloaded by user and return 0
+*/
+
+int entryTcp(char* sourceAddr){
+
+  uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
+  int socket =  bindSocket(sourceAddress);
+  if(socket < 0){
+    return -1;
+  }
+  unordered_map<ConnectionTuple, Tcb> connections;
+  struct pollfd pollItem;
+  pollItem.fd = socket;
+  pollItem.events = POLLIN; //read
+  while(true){
+  
+    int numRet = poll(&pollItem, 1, -1);
+    if((numRet > 0) && (pollItem.revents & POLLIN)){
+      multiplexIncoming(connections, socket);
+    }
+  
+  }
+  
+  return 0;
 }
 
 void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connections, char* destAddr, char* srcAddr, int socket){

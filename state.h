@@ -2,8 +2,12 @@
 
 #include <cstdint>
 #include "packet.h"
+#include <tuple>
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
 #define portThreshold 30000
+
+//sourceIp, sourcePort, destIp, destPort
+typedef tuple<uint32_t, uint16_t, uint32_t, uint16_t> ConnectionTuple;
 
 enum class States{
   Listen,
@@ -55,6 +59,8 @@ class Tcb{
     uint32_t rWnd; // window advertised by me to my peer. how many bytes i can hold in buffer.
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
+    
+    std::function<int(TcpPacket&, int)> currentState;
   
 };
 

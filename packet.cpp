@@ -515,6 +515,8 @@ IpPacket& IpPacket::setTcpPacket(TcpPacket& packet){
 }
 
 
+uint32_t IpPacket::getSrcAddr(){ return sourceAddress;}
+uint32_t IpPacket::getDstAddr(){ return destAddress;}
 
 uint8_t IpPacket::getVersion(){
   return (versionIHL & 0xF0) >> 4;

@@ -190,6 +190,9 @@ class IpPacket{
     IpPacket& setOptions(std::vector<IpOption> list);
     IpPacket& setTcpPacket(TcpPacket& packet);
     
+    uint32_t getSrcAddr();
+    uint32_t getDstAddr();
+    
     int fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
