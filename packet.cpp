@@ -499,7 +499,7 @@ IpPacket& IpPacket::setSrcAddr(uint32_t addr){
   return *this;
 }
 
-IpPacket& IpPacket::setDstAddr(uint32_t addr){
+IpPacket& IpPacket::setDestAddr(uint32_t addr){
   destAddress = addr;
   return *this;
 }
@@ -516,7 +516,7 @@ IpPacket& IpPacket::setTcpPacket(TcpPacket& packet){
 
 
 uint32_t IpPacket::getSrcAddr(){ return sourceAddress;}
-uint32_t IpPacket::getDstAddr(){ return destAddress;}
+uint32_t IpPacket::getDestAddr(){ return destAddress;}
 
 uint8_t IpPacket::getVersion(){
   return (versionIHL & 0xF0) >> 4;

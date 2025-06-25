@@ -6,7 +6,10 @@
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
 #define portThreshold 30000
 
-//sourceIp, sourcePort, destIp, destPort
+#define sAddr 0
+#define sPort 1
+#define dAddr 2
+#define dPort 3
 typedef tuple<uint32_t, uint16_t, uint32_t, uint16_t> ConnectionTuple;
 
 enum class States{
@@ -60,7 +63,8 @@ class Tcb{
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
-    std::function<int(TcpPacket&, int)> currentState;
+    std::function<int(Tcb&, TcpPacket&, int)> currentState;
+    int passiveOpen;
   
 };
 

@@ -186,12 +186,12 @@ class IpPacket{
     IpPacket& setProto(uint8_t proto);
     IpPacket& setHeadCheck(uint16_t check);
     IpPacket& setSrcAddr(uint32_t addr);
-    IpPacket& setDstAddr(uint32_t addr);
+    IpPacket& setDestAddr(uint32_t addr);
     IpPacket& setOptions(std::vector<IpOption> list);
     IpPacket& setTcpPacket(TcpPacket& packet);
     
     uint32_t getSrcAddr();
-    uint32_t getDstAddr();
+    uint32_t getDestAddr();
     
     int fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);

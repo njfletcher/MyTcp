@@ -139,8 +139,32 @@ int verifyRecWindow(uint32_t rWnd, uint32_t rNxt, uint32_t seqNum, uint32_t segL
 }
 
 
+/*
+sendReset-
+This method sends a rst packet, given its acknum, ackflag, and seqnum. These fields are handled
+differently based on which scenario a reset is needed in, so this logic is assumed to take place
+outside of this method. Any logic involving moving a connection to the next state is also
+assumed to be handled outside of this method.
+*/
+
+int sendReset(int socket, ConnectionTuple t, uint32_t ackNum, uint8_t ackFlag, uint32_t seqNum){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  
+  sPacket.setFlags(0x0, 0x0, 0x0, ackFlag, 0x0, 0x0, 0x0,    0x0).setSrcPort(get<sPort>(t)).setDestPort(get<dPort>(t)).setSeq(seqNum).setAck(ackNum).setDataOffset(0x05).setReserved(0x00).setWindow(0x00).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(get<sAddr>(t), get<dAddr>(t));
+      
+  if(sendPacket(socket,get<dAddr>(t),sPacket) != -1){
+    //if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+    return 0;
+  }
+  else return -1;
+    
+}
 
 /*
+multiplexIncoming-
 Upon notification of incoming packet on interface, this method
 checks details of the packet and gives it to correct connection, or sends reset if it does not belong
 to a valid connection
@@ -151,20 +175,31 @@ void multiplexIncoming(unordered_map<ConnectionTuple, Tcb>& connections, int soc
   IpPacket retPacket;
   if(recPacket(socket, retPacket) != -1){
     TcpPacket& p = retPacket.getTcpPacket();
-    
-    uint32_t sourceAddress = retPacket.getSrcAddr();
-    uint32_t destAddress = retPacket.getDstAddr();
-    uint16_t sourcePort = p.getSrcPort();
-    uint16_t destPort = p.getDestPort();
+
+    uint32_t sourceAddress = retPacket.getDestAddr();
+    uint32_t destAddress = retPacket.getSrcAddr();
+    uint16_t sourcePort = p.getDestPort();
+    uint16_t destPort = p.getSrcPort();
     
     ConnectionTuple t(sourceAddress, sourcePort, destAddress, destPort);
     if(connections.contains(t)){
       Tcb& b = connections[t];
-      b.currentState(p,socket);
+      b.currentState(b,p,socket);
     }
     //fictional closed state
     else{
-      sendReset(socket, p);
+      if(!p.getFlag(TcpPacketFlags::rst)){
+      
+        if(p.getFlag(TcpPacketFlags::ack)){
+          sendReset(socket, t, 0, 0, p.getAckNum());
+        }
+        else{
+          sendReset(socket,t, p.getSeqNum() + p.getSegSize(),1,0);
+        }
+      }
+      else{
+        //possible reset processing
+      }
     }
   
   }
@@ -172,6 +207,7 @@ void multiplexIncoming(unordered_map<ConnectionTuple, Tcb>& connections, int soc
 }
 
 /*
+entryTcp-
 Starts the tcp implementation, equivalent to a tcp module being loaded.
 the interface socket, polling of this socket, and all connections start at this point.
 returns -1 if failure, otherwise will run until unloaded by user and return 0
@@ -199,7 +235,7 @@ int entryTcp(char* sourceAddr){
   
   return 0;
 }
-
+/*
 void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connections, char* destAddr, char* srcAddr, int socket){
   
   Tcb b;
@@ -238,24 +274,57 @@ void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connect
   closed(b, passive, socket);
   
 }
+*/
 
-void established(Tcb& b, int socket){
+int established(Tcb& b, TcpPacket& p , int socket){
 
 }
 
-void synReceived(Tcb& b, int socket){
+int synReceived(Tcb& b, TcpPacket& p, int socket){
 
-  IpPacket retPacket;
-  if(recPacket(socket, retPacket) != -1){
-    TcpPacket& p = retPacket.getTcpPacket();
+  uint32_t segLen = p.getSegSize();
+  if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+    return -1;
+  }
+  b.rNxt = p.getSeqNum() + segLen;
     
-    uint32_t segLen = p.getSegSize();
-    if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+  if(p.getFlag(TcpPacketFlags::ack)){
+    if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
+      b.sUna = p.getAckNum();
+    }
+    else{
+      // either error or retransmit 
       return -1;
     }
-    b.rNxt = p.getSeqNum() + segLen + 1;
+    b.currentState = established;
+    
+  }
+  else{
+    //error or possible reset
+  }
+    
+}
+
+int synSent(Tcb& b, TcpPacket& p, int socket){
+
+  
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  TcpPacket sPacket;
+  
+  uint32_t segLen = p.getSegSize();
+  b.sWnd = p.getWindow();
+  b.irs = p.getSeqNum(); 
+  if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+    return -1;
+  }
+  b.rNxt = p.getSeqNum() + segLen + 1;
+    
+  if(p.getFlag(TcpPacketFlags::syn)){
     
     if(p.getFlag(TcpPacketFlags::ack)){
+      //standard connection attempt
+        
       if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
         b.sUna = p.getAckNum();
       }
@@ -263,116 +332,64 @@ void synReceived(Tcb& b, int socket){
         // either error or retransmit 
         return -1;
       }
-      established(b,socket);
       
+      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+      if(sendPacket(socket,b.destAddress,sPacket) != -1){
+          b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+          b.currentState = established;
+      }
     
     }
     else{
-      //error or possible reset
-    
+      //simultaneous connection attempt
+      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+      if(sendPacket(socket,b.destAddress,sPacket) != -1){
+          b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+          b.currentState = synReceived;
+      }
     }
     
   }
-
-}
-
-int synSent(Tcb& b, int socket){
-
-  IpPacket retPacket;
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  if(recPacket(socket,retPacket) != -1){
-    TcpPacket& p = retPacket.getTcpPacket();
-    
-    uint32_t segLen = p.getSegSize();
-    b.sWnd = p.getWindow();
-    b.irs = p.getSeqNum(); 
-    if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
-      return -1;
-    }
-    b.rNxt = p.getSeqNum() + segLen + 1;
-    
-    if(p.getFlag(TcpPacketFlags::syn)){
-    
-      if(p.getFlag(TcpPacketFlags::ack)){
-        //standard connection attempt
-        
-        if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
-          b.sUna = p.getAckNum();
-        }
-        else{
-          // either error or retransmit 
-          return -1;
-        }
-      
-        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
-      
-        if(sendPacket(socket,b.destAddress,sPacket) != -1){
-            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
-            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-            established(b,socket);
-        }
-    
-      }
-      else{
-        //simultaneous connection attempt
-        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
-      
-        if(sendPacket(socket,b.destAddress,sPacket) != -1){
-            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
-            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-            synReceived(b,socket);
-        }
-      }
-    
-    }
-    else{
-      
-      //error or possible reset
-    }
+  else{
+    //error or possible reset
+  }
    
 }
 
-void listen(Tcb& b, int socket){
+int listen(Tcb& b, TcpPacket& p, int socket){
 
-  IpPacket retPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
   TcpPacket sPacket;
   
-  if(recPacket(socket,retPacket) != -1){
-    TcpPacket& p = retPacket.getTcpPacket();
+  uint32_t segLen = p.getSegSize();
+  b.sWnd = p.getWindow();
+  b.irs = p.getSeqNum();
     
-    uint32_t segLen = p.getSegSize();
-    b.sWnd = p.getWindow();
-    b.irs = p.getSeqNum();
+  //if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+  //  return -1;
+  //}
+  b.rNxt = p.getSeqNum() + segLen;
     
-    //if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
-    //  return -1;
-    //}
-    b.rNxt = p.getSeqNum() + segLen + 1;
+  if(p.getFlag(TcpPacketFlags::syn)){
     
-    if(p.getFlag(TcpPacketFlags::syn)){
-    
-      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+  sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
       
-      if(sendPacket(socket,b.destAddress,sPacket) != -1){
-          b.sUna = sPacket.getSeqNum();
-          b.sNxt = sPacket.getSeqNum() + sPacket.getSegSize();
-          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-          synReceived(b,socket);
-      }
-
+    if(sendPacket(socket,b.destAddress,sPacket) != -1){
+      b.sUna = sPacket.getSeqNum();
+      b.sNxt = sPacket.getSeqNum() + sPacket.getSegSize();
+      if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+      b.currentState = synReceived;
     }
-    else{
-      
-      //error or possible reset
-    }
-
   }
-  
+  else{
+      //error or possible reset
+  }
+
 }
 
 
