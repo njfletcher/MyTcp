@@ -41,10 +41,7 @@ class Tcb{
     Tcb() = default;
     
     //all multi-byte fields are guaranteed to be in host order.
-    uint32_t sourceAddress; 
-    uint32_t destAddress;
-    uint16_t sourcePort;
-    uint16_t destPort;
+    ConnectionTuple connT;
 
     std::vector<TcpPacket> retransmit;
     

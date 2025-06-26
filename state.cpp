@@ -307,7 +307,6 @@ int synReceived(Tcb& b, TcpPacket& p, int socket){
 
 int synSent(Tcb& b, TcpPacket& p, int socket){
 
-  
   vector<TcpOption> options;
   vector<uint8_t> data;
   TcpPacket sPacket;
@@ -318,7 +317,8 @@ int synSent(Tcb& b, TcpPacket& p, int socket){
   if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
     return -1;
   }
-  b.rNxt = p.getSeqNum() + segLen + 1;
+  
+  b.rNxt = p.getSeqNum() + segLen;
     
   if(p.getFlag(TcpPacketFlags::syn)){
     
@@ -329,8 +329,8 @@ int synSent(Tcb& b, TcpPacket& p, int socket){
         b.sUna = p.getAckNum();
       }
       else{
-        // either error or retransmit 
-        return -1;
+        sendReset(socket, b.connT, 0, 0, p.getAckNum());
+        return 0;
       }
       
       sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
@@ -354,8 +354,14 @@ int synSent(Tcb& b, TcpPacket& p, int socket){
     }
     
   }
+  //if in syn-sent need to be sent a syn at the very least: send rst
   else{
-    //error or possible reset
+    if(p.getFlag(TcpPacketFlags::ack)){
+      sendReset(socket, b.connT, 0, 0, p.getAckNum());
+    }
+    else{
+      sendReset(socket,b.connT, p.getSeqNum() + p.getSegSize(),1,0);
+    }
   }
    
 }
@@ -365,6 +371,12 @@ int listen(Tcb& b, TcpPacket& p, int socket){
   vector<TcpOption> options;
   vector<uint8_t> data;
   TcpPacket sPacket;
+  
+  //if im in the listen state, I havent sent anything. so any ack at all is an unacceptable ack
+  if(p.getFlag(TcpPacketFlags::ack)){
+    sendReset(socket, b.connT, 0, 0, p.getAckNum());
+    return 0;
+  }
   
   uint32_t segLen = p.getSegSize();
   b.sWnd = p.getWindow();
