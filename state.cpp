@@ -12,14 +12,17 @@
 #include "network.h"
 #include <unordered_map>
 #include <unordered_set>
-#include <tuple>
+#include <utility>
 #include <poll.h>
+#include <climits>
 
 using namespace std;
 
-unordered_set<uint16_t> availablePorts;
-unordered_set<uint16_t> availableIds;
-unordered_map<LocalPair, uint16_t> idMap;
+//range from dynPortStart to dynPortEnd
+unordered_set<uint16_t> usedPorts;
+//range from 0 to max_val(int)
+unordered_set<int> usedIds;
+unordered_map<int, pair<LocalPair,RemotePair>> idMap;
 uint32_t bestLocalAddr;
 
 //if an active open, assumes initial packet has been sent.
@@ -154,13 +157,39 @@ the user should check for unspecified as an error
 uint16_t pickDynPort(){
   
   for(uint16_t p = dynPortStart; p <= dynPortEnd; p++){
-    if(availablePorts.contains(p)){
-      availablePorts.insert(p);
+    if(!usedPorts.contains(p)){
+      usedPorts.insert(p);
       return p;
     }
   }
   return Unspecified;
 
+}
+
+/*pickId
+picks an available id to map a connection to. 
+returns -1 for error or an id for success
+*/
+int pickId(){
+  for(0 i = 0; i <= INT_MAX; i++){
+    if(!usedIds.contains(i)){
+      usedIds.insert(i);
+      return i;
+    }
+  }
+  return -1;
+}
+
+/*
+reclaimId
+reclaims id so that it can be used with new connections
+assumes the id is a valid one that is in use
+*/
+void reclaimId(int id){
+
+  usedIds.erase(id);
+  idMap.erase(id);
+  
 }
 
 /*pickDynAddr
@@ -172,6 +201,12 @@ uint32_t pickDynAddr(){
   return bestLocalAddr;
 }
 
+/*
+open
+models the open action for the application interface
+creates connection and kicks off handshake(if active open)
+returns -1 for error or a unique identifier analogous to a file descriptor.
+*/
 int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
 
   Tcb b(lP, rP, passive);
@@ -199,28 +234,44 @@ int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
   }
   
   if(m.contains(lP)){
-    unordered_map<RemotePair, Tcb>& rMap = m[lP];
     //duplicate connection
-    if(rMap.contains(rP){
+    if(m[lP].contains(rP){
       return -1;
     }
-    else{
-      rMap[rP] = b;
-    }
   }
-  else{
-    m[lP] = unordered_map<RemotePair, Tcb>();
-    m[lP][rP] = b;
-  }
+  else m[lP] = unordered_map<RemotePair, Tcb>();
+  
+  int id = pickId(s);
+  pair p(LocalPair,RemotePair);
+  if(id != -1) idMap[id] = p;
+  else return -1;
+  
+  pickRealIsn(b);
+  b.rWnd = 8192;
   
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
   
+    vector<TcpOption> v;
+    vector<uint8_t> v1;
+    TcpPacket p;
   
+    p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,   0x0).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(lP.first,rP.first);
+  
+    if(sendPacket(socket,b.destAddress, p) != -1){
+      b.sUna = p.getSeqNum();
+      b.sNxt = p.getSeqNum() + p.getSegSize();
+      b.retransmit.push_back(p);
+    }
+    else{
+      reclaimId(id);
+      return -1;
+    }
   }
-  
-  return 0;
 
+  m[lP][rP] = b;
+  return id;
+  
 }
 
 
@@ -322,47 +373,6 @@ int entryTcp(char* sourceAddr){
   
   return 0;
 }
-/*
-void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connections, char* destAddr, char* srcAddr, int socket){
-  
-  Tcb b;
-  b.destAddress = toAltOrder<uint32_t>(inet_addr(destAddr));
-  b.sourceAddress = toAltOrder<uint32_t>(inet_addr(srcAddr));
-  
-  char validConnection = 0;
-  while(!validConnection){
-    unsigned char srcPort[4];
-    if(RAND_bytes(srcPort, 4) < 1){
-      ERR_print_errors_fp(stderr);
-      return -1;
-    }
-    unsigned char dstPort[4];
-    if(RAND_bytes(dstPort, 1) < 1){
-      ERR_print_errors_fp(stderr);
-      return -1;
-    }
-    uint32_t sPortConv = unloadBytes<uint32_t>(srcPort,0);
-    uint32_t dPortConv = unloadBytes<uint32_t>(dstPort,0);
-    if(sPortConv < portThreshold) sPortConv = sPortConv + portThreshold;
-    if(dPortConv < portThreshold) dPortConv = dPortConv + portThreshold;
-    pair<uint32_t, uint32_t> p(sPortConv, dPortConv);
-    if(!connections.contains(p)){
-      connections[p] = 1;
-      validConnection = 1;
-    }
-  }
-  
-  unsigned char passive = 0;
-  if(RAND_bytes(passive, 1) < 1){
-    ERR_print_errors_fp(stderr);
-    return -1;
-  }
-  passive = passive % 2;
-  closed(b, passive, socket);
-  
-}
-*/
-
 
 /* tcp state functions
 require block, packet, action, data, socket signature 
@@ -477,10 +487,7 @@ int listen(Tcb& b, TcpPacket& p, int socket){
   uint32_t segLen = p.getSegSize();
   b.sWnd = p.getWindow();
   b.irs = p.getSeqNum();
-    
-  //if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
-  //  return -1;
-  //}
+  
   b.rNxt = p.getSeqNum() + segLen;
     
   if(p.getFlag(TcpPacketFlags::syn)){
@@ -499,30 +506,4 @@ int listen(Tcb& b, TcpPacket& p, int socket){
   }
 
 }
-
-
-void closed(Tcb& b, int passive, int socket){
-  
-  pickRealIsn(b);
-  b.rWnd = 8192;
-  
-  if(!passive){
-    vector<TcpOption> v;
-    vector<uint8_t> v1;
-    TcpPacket p;
-  
-    p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,   0x0).setSrcPort(b.sourcePort).setDestPort(b.destPort).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(b.sourceAddress,   b.destAddress);
-  
-    if(sendPacket(socket,b.destAddress, p) != -1){
-      b.sUna = p.getSeqNum();
-      b.sNxt = p.getSeqNum() + p.getSegSize();
-      b.retransmit.push_back(p);
-      synSent(b,socket);
-    }
-  
-  }
-  else listen(b, socket);
-  
-}
-
 
