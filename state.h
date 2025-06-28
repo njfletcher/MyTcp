@@ -2,15 +2,17 @@
 
 #include <cstdint>
 #include "packet.h"
-#include <tuple>
-#define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
-#define portThreshold 30000
+#include <utility>
 
-#define sAddr 0
-#define sPort 1
-#define dAddr 2
-#define dPort 3
-typedef tuple<uint32_t, uint16_t, uint32_t, uint16_t> ConnectionTuple;
+#define Unspecified 0
+#define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
+
+typedef pair<uint32_t, uint16_t> LocalPair;
+typedef pair<uint32_t, uint16_t> RemotePair;
+typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
+
+#define dynPortStart 49152
+#define dynPortEnd 65535
 
 enum class States{
   Listen,
@@ -39,9 +41,11 @@ class Tcb{
 
   public:
     Tcb() = default;
+    Tcb(LocalPair l, RemotePair r, int passive);
     
     //all multi-byte fields are guaranteed to be in host order.
-    ConnectionTuple connT;
+    LocalPair lP;
+    RemotePair rP;
 
     std::vector<TcpPacket> retransmit;
     

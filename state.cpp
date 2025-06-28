@@ -11,11 +11,19 @@
 #include <arpa/inet.h>
 #include "network.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <tuple>
 #include <poll.h>
 
 using namespace std;
 
+unordered_set<uint16_t> availablePorts;
+unordered_set<uint16_t> availableIds;
+unordered_map<LocalPair, uint16_t> idMap;
+uint32_t bestLocalAddr;
+
+//if an active open, assumes initial packet has been sent.
+Tcb::Tcb(LocalPair l, RemotePair r, int passive) : lP(l), rP(r), passiveOpen(passive) {}
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -138,6 +146,83 @@ int verifyRecWindow(uint32_t rWnd, uint32_t rNxt, uint32_t seqNum, uint32_t segL
 
 }
 
+/*pickDynPort 
+picks an unused port from the dynamic range
+if for some reason it cant find one, returns 0(unspecified)
+the user should check for unspecified as an error
+*/
+uint16_t pickDynPort(){
+  
+  for(uint16_t p = dynPortStart; p <= dynPortEnd; p++){
+    if(availablePorts.contains(p)){
+      availablePorts.insert(p);
+      return p;
+    }
+  }
+  return Unspecified;
+
+}
+
+/*pickDynAddr
+ideally will pick best address based on routing tables.
+for right now this just returns a default address
+*/
+uint32_t pickDynAddr(){
+
+  return bestLocalAddr;
+}
+
+int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
+
+  Tcb b(lP, rP, passive);
+  if(passive){
+    b.currentState = listen;
+  }
+  else{
+    //unspecified remote info in active open does not make sense
+    if(rP.first == Unspecified || rP.second == Unspecified) return -1;
+    b.currentState = synSent;
+  }
+  
+  if(lP.second == Unspecified){
+    uint16_t chosenPort = pickDynPort();
+    if(chosenPort != Unspecified){
+      lP.second = chosenPort;
+      b.lP = lP;
+    }
+    else return -1;
+  }
+  if(lP.first == Unspecified){
+    uint32_t chosenAddr = pickDynAddr(); 
+    lP.first = chosenAddr;
+    b.lP = lP;
+  }
+  
+  if(m.contains(lP)){
+    unordered_map<RemotePair, Tcb>& rMap = m[lP];
+    //duplicate connection
+    if(rMap.contains(rP){
+      return -1;
+    }
+    else{
+      rMap[rP] = b;
+    }
+  }
+  else{
+    m[lP] = unordered_map<RemotePair, Tcb>();
+    m[lP][rP] = b;
+  }
+  
+  //finally need to send initial syn packet in active open because state is set to synOpen
+  if(!passive){
+  
+  
+  }
+  
+  return 0;
+
+}
+
 
 /*
 sendReset-
@@ -213,6 +298,7 @@ the interface socket, polling of this socket, and all connections start at this 
 returns -1 if failure, otherwise will run until unloaded by user and return 0
 */
 
+//in the future bind this to all available source addresses and poll all of them, not just one address
 int entryTcp(char* sourceAddr){
 
   uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
@@ -220,7 +306,8 @@ int entryTcp(char* sourceAddr){
   if(socket < 0){
     return -1;
   }
-  unordered_map<ConnectionTuple, Tcb> connections;
+  ConnectionMap connections;
+  
   struct pollfd pollItem;
   pollItem.fd = socket;
   pollItem.events = POLLIN; //read
@@ -275,6 +362,15 @@ void startFuzzSequence(unordered_map<pair<uint32_t, uint32_t>, uint8_t>& connect
   
 }
 */
+
+
+/* tcp state functions
+require block, packet, action, data, socket signature 
+*/
+
+int closeWait(Tcb& b, TcpPacket& p , int socket){
+
+}
 
 int established(Tcb& b, TcpPacket& p , int socket){
 
