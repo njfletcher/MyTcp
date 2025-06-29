@@ -25,7 +25,7 @@ unordered_map<int, pair<LocalPair,RemotePair>> idMap;
 uint32_t bestLocalAddr;
 
 //if an active open, assumes initial packet has been sent.
-Tcb::Tcb(LocalPair l, RemotePair r, int passive) : lP(l), rP(r), passiveOpen(passive) {}
+Tcb::Tcb(LocalPair l, RemotePair r, uint8_t passive) : lP(l), rP(r), passiveOpen(passive) {}
 
 void printError(Code c){
   cout << "error: ";
@@ -41,6 +41,12 @@ void printError(Code c){
       break;
     case RawSend:
       cout << "problem with raw socket sending" <<endl;
+      break;
+    case ProgramError:
+      cout << "problem with usage of program" << endl;
+      break;
+    case BadIncPacket:
+      cout << "incoming packet has problems" << endl;
       break;
     default:
       cout << "unknown" << endl;
@@ -214,7 +220,36 @@ uint32_t pickDynAddr(){
   return bestLocalAddr;
 }
 
+/*
+sendReset-
+This method sends a rst packet, given its acknum, ackflag, and seqnum. These fields are handled
+differently based on which scenario a reset is needed in, so this logic is assumed to take place
+outside of this method. Any logic involving moving a connection to the next state is also
+assumed to be handled outside of this method.
+*/
 
+Code sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, uint8_t ackFlag, uint32_t seqNum){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  
+  sPacket.setFlags(0x0, 0x0, 0x0, ackFlag, 0x0, 0x0, 0x0,    0x0).setSrcPort(lP.second).setDestPort(rP.second).setSeq(seqNum).setAck(ackNum).setDataOffset(0x05).setReserved(0x00).setWindow(0x00).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+      
+  if(sendPacket(socket, rP.first, sPacket) != -1){
+    //if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+    return Code::Success;
+  }
+  else return Code::RawSend;
+    
+}
+
+/*
+sendFirstSyn
+sends the initiating syn packet needed by an active open
+made a separate method because it has relatively hardcoded values/effects and
+the rfcs do not recommend sending data with it.
+*/
 Code sendFirstSyn(Tcb& b, int socket){
 
     vector<TcpOption> v;
@@ -238,18 +273,16 @@ models the open action for the application interface
 creates connection and kicks off handshake(if active open)
 returns negative code for error or a unique identifier analogous to a file descriptor.
 */
-int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
+int open(ConnectionMap& m, uint8_t passive, LocalPair lP, RemotePair rP){
 
   Tcb newConn(lP, rP, passive);
   if(passive){
-    newConn.passiveOpen = 1;
     newConn.currentState = State::Listen;
     newConn.stateLogic = listen;
   }
   else{
     //unspecified remote info in active open does not make sense
     if(rP.first == Unspecified || rP.second == Unspecified) static_cast<int>(Code::ActiveUnspec);
-    newConn.passiveOpen = 0;
     newConn.currentState = State::SynSent;
     newConn.stateLogic = synSent;
   }
@@ -272,28 +305,16 @@ int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
     //duplicate connection
     if(m[lP].contains(rP){
       Tcb& oldConn = m[lP][rP];
-      if(oldConn.currentState == State::Listen && !passive){
-        if(rP.first == Unspecified || rP.second == Unspecified) return static_cast<int>(Code::ActiveUnspec);
-        Code c = sendFirstSyn(oldConn,socket);
-        if(c != Code::Success) return static_cast<int>(c);
-        oldConn.passiveOpen = 0;
-        oldConn.currentState = State::SynSent;
-        oldConn.stateLogic = synSent;
-        return static_cast<int>(Code::Success);
-      }
-      else return static_cast<int>(Code::DupConn);
+      return static_cast<int>(oldConn.stateLogic(socket, oldConn, nullptr, Event::Open, &passive)); 
     }
   }
   else m[lP] = unordered_map<RemotePair, Tcb>();
   
   int id = pickId(s);
   pair p(LocalPair,RemotePair);
-  if(id != -1) idMap[id] = p;
+  if(id >= 0) idMap[id] = p;
   else return static_cast<int>(Code::Resources);
-  
-  pickRealIsn(newConn);
-  newConn.rWnd = 8192;
-  
+    
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
     Code c = sendFirstSyn(newConn,socket);
@@ -310,37 +331,13 @@ int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
 
 
 /*
-sendReset-
-This method sends a rst packet, given its acknum, ackflag, and seqnum. These fields are handled
-differently based on which scenario a reset is needed in, so this logic is assumed to take place
-outside of this method. Any logic involving moving a connection to the next state is also
-assumed to be handled outside of this method.
-*/
-
-int sendReset(int socket, ConnectionTuple t, uint32_t ackNum, uint8_t ackFlag, uint32_t seqNum){
-
-  TcpPacket sPacket;
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  
-  sPacket.setFlags(0x0, 0x0, 0x0, ackFlag, 0x0, 0x0, 0x0,    0x0).setSrcPort(get<sPort>(t)).setDestPort(get<dPort>(t)).setSeq(seqNum).setAck(ackNum).setDataOffset(0x05).setReserved(0x00).setWindow(0x00).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(get<sAddr>(t), get<dAddr>(t));
-      
-  if(sendPacket(socket,get<dAddr>(t),sPacket) != -1){
-    //if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-    return 0;
-  }
-  else return -1;
-    
-}
-
-/*
 multiplexIncoming-
 Upon notification of incoming packet on interface, this method
 checks details of the packet and gives it to correct connection, or sends reset if it does not belong
 to a valid connection
 */
 
-void multiplexIncoming(ConnectionMap& connections, int socket){
+Code multiplexIncoming(ConnectionMap& connections, int socket){
 
   IpPacket retPacket;
   if(recPacket(socket, retPacket) != -1){
@@ -351,55 +348,49 @@ void multiplexIncoming(ConnectionMap& connections, int socket){
     uint16_t sourcePort = p.getDestPort();
     uint16_t destPort = p.getSrcPort();
     
-    //drop the packet, 0 values are invalid
-    if(sourceAddress == 0 || destAddress == 0 || sourcePort == 0 || destPort == 0) return;
+    //drop the packet, unspec values are invalid
+    if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return Code::BadIncPacket;
     
     LocalPair lP(sourceAddress, sourcePort);
     RemotePair rP(destAddress, destPort);
     
     if(connections.contains(lP)){
-      unordered_map<RemotePair, Tcb>& rMap = connections[lP];
-      if(rMap.contains(rP)){
-        Tcb& b = rMap[rP];
-        b.currentState(b,p,socket);
-      }
-      if(
-
+      if(connections[lP].contains(rP)) return b.stateLogic(socket,connections[lP][rP],&retPacket,Event::none,nullptr);
+      RemotePair addrUnspec(Unspecified, rP.second);
+      if(connections[lP].contains(addrUnspec)) return b.stateLogic(socket,connections[lP][addrUnspec],&retPacket,Event::none,nullptr);
+      RemotePair portUnspec(rP.first, Unspecified);
+      if(connections[lP].contains(portUnspec)) return b.stateLogic(socket,connections[lP][portUnspec],&retPacket,Event::none,nullptr);
+      RemotePair fullUnspec(Unspecified, Unspecified);
+      if(connections[lP].contains(fullUnspec)) return b.stateLogic(socket,connections[lP][fullUnspec],&retPacket,Event::none,nullptr);
     }
-    //fictional closed state
-    else{
-      if(!p.getFlag(TcpPacketFlags::rst)){
-      
-        if(p.getFlag(TcpPacketFlags::ack)){
-          sendReset(socket, t, 0, 0, p.getAckNum());
-        }
-        else{
-          sendReset(socket,t, p.getSeqNum() + p.getSegSize(),1,0);
-        }
+    
+    //if we've gotten to this point no conn exists: fictional closed state
+    if(!p.getFlag(TcpPacketFlags::rst)){
+      if(p.getFlag(TcpPacketFlags::ack)){
+        return sendReset(socket, lP, rP, 0, 0, p.getAckNum());
       }
       else{
-        //possible reset processing
+        return sendReset(socket, lP, rP, p.getSeqNum() + p.getSegSize(),1,0);
       }
     }
-  
+    else return Code::BadIncPacket; //per rfc 9293 3.10.7 rst packet should be discarded, so nothing else to do if it is a rst.
+    
   }
+  else return Code::RawSend;
   
 }
 
 /*
 entryTcp-
 Starts the tcp implementation, equivalent to a tcp module being loaded.
-the interface socket, polling of this socket, and all connections start at this point.
-returns -1 if failure, otherwise will run until unloaded by user and return 0
+in the future bind this to all available source addresses and poll all of them, not just one address
 */
-
-//in the future bind this to all available source addresses and poll all of them, not just one address
-int entryTcp(char* sourceAddr){
+Code entryTcp(char* sourceAddr){
 
   uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
   int socket =  bindSocket(sourceAddress);
   if(socket < 0){
-    return -1;
+    return Code::RawSock;
   }
   ConnectionMap connections;
   
@@ -415,12 +406,8 @@ int entryTcp(char* sourceAddr){
   
   }
   
-  return 0;
+  return Code::Success;
 }
-
-/* tcp state functions
-require block, packet, action, data, socket signature 
-*/
 
 int closeWait(Tcb& b, TcpPacket& p , int socket){
 
@@ -516,37 +503,84 @@ int synSent(Tcb& b, TcpPacket& p, int socket){
    
 }
 
-int listen(Tcb& b, TcpPacket& p, int socket){
+/*
+  all state logic functions are functions that are called when 
+  the socket receives some signal(either packet from peer or command from user) for a connection
+  that is in the respective state. A non null pointer to the packet means the socket received
+  a packet from the peer for the connection represented by b. A null pointer to the packet means 
+  an action by a user was called for the connection represented by b.  A null pointer to a packet and 
+  a none event from the user does not make sense and will result in an error.
+  
+  Since the fictional closed state is not a real state and represents a non existent connection,
+  this logic is handled in the entry point functions(either the action functions or socket rec) themselves.
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  //if im in the listen state, I havent sent anything. so any ack at all is an unacceptable ack
-  if(p.getFlag(TcpPacketFlags::ack)){
-    sendReset(socket, b.connT, 0, 0, p.getAckNum());
-    return 0;
-  }
-  
-  uint32_t segLen = p.getSegSize();
-  b.sWnd = p.getWindow();
-  b.irs = p.getSeqNum();
-  
-  b.rNxt = p.getSeqNum() + segLen;
+  all state functions must have Code ret, params: socket, Tcb, IpPacket*, Event, evData signature
+*/
+
+Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
+
+  if(pPtr != nullptr){
+    IpPacket& ipP = *pPtr;
+    TcpPacket& tcpP = ipP.getTcpPacket();
+    RemotePair recPair(ipP.getSrcAddr(), tcpP.getSrcPort());
     
-  if(p.getFlag(TcpPacketFlags::syn)){
-    
-  sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
-      
-    if(sendPacket(socket,b.destAddress,sPacket) != -1){
-      b.sUna = sPacket.getSeqNum();
-      b.sNxt = sPacket.getSeqNum() + sPacket.getSegSize();
-      if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-      b.currentState = synReceived;
+    //if im in the listen state, I havent sent anything, so rst could not be referring to anything valid.
+    if(tcpP.getFlag(TcpPacketFlags::rst)){
+      return Code::BadIncPacket;
     }
+  
+    //if im in the listen state, I havent sent anything. so any ack at all is an unacceptable ack
+    if(tcpP.getFlag(TcpPacketFlags::ack)){
+      sendReset(socket, b.lP, recPair, 0, 0, tcpP.getAckNum());
+      return Code::BadIncPacket;
+    }
+  
+    if(tcpP.getFlag(TcpPacketFlags::syn)){
+
+      uint32_t segLen = tcpP.getSegSize();
+      pickRealIsn(b);
+      tcpP.irs = tcpP.getSeqNum();
+      tcpP.rNxt = tcpP.getSeqNum() + 1;
+      
+      vector<TcpOption> options;
+      vector<uint8_t> data;
+      TcpPacket sPacket;
+      
+      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(b.lP.second).setDestPort(recPair.second).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, recPair.first);
+      
+      if(sendPacket(socket,recPair.first,sPacket) != -1){
+        b.sUna = b.iss;
+        b.sNxt = b.iss + 1;
+        b.stateLogic = synReceived;
+        if(b.rP.first == Unspecified) b.rP.first = recPair.first;
+        if(b.rP.second == Unspecified) b.rP.second = recPair.second;
+        return Code::Success;
+      }
+      else return Code::RawSend;
+    }
+    else return Code::BadIncPacket;
+    
   }
   else{
-      //error or possible reset
+  
+    switch(ev){
+      case Event::None:
+        return Code::ProgramError;
+      case Event::Listen:
+        uint8_t passive = evData[0];
+        if(!passive){
+          if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec;
+          Code c = sendFirstSyn(b,socket);  
+          if(c != Code::Success) return c;
+          b.passiveOpen = 0;
+          b.stateLogic = synSent;
+          return Code::Success;
+        }
+        else return Code::DupConn;
+      case default:
+        return Code::DupConn;
+    }
+  
   }
 
 }

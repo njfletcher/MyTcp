@@ -17,7 +17,9 @@ typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
 enum class Code{
 
   Success = 0,
-  RawSend = -1,
+  RawSock = -1,
+  ProgramError = -2,
+  BadIncPacket = -3,
   ActiveUnspec = -20,
   Resources = -21,
   DupConn = -22
@@ -38,20 +40,21 @@ enum class State{
   Closed
 };
 
-enum class Events{
-  open,
-  send,
-  receive,
-  close,
-  abort,
-  status
+enum class Event{
+  Open,
+  Send,
+  Receive,
+  Close,
+  Abort,
+  Status,
+  None
 };
 
 class Tcb{
 
   public:
     Tcb() = default;
-    Tcb(LocalPair l, RemotePair r, int passive);
+    Tcb(LocalPair l, RemotePair r, uint8_t passive);
     
     //all multi-byte fields are guaranteed to be in host order.
     LocalPair lP;
@@ -74,10 +77,9 @@ class Tcb{
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
-    State currentState;
     std::function<int(Tcb&, TcpPacket&, int)> stateLogic;
     //0 active; 1 passive
-    int passiveOpen;
+    uint8_t passiveOpen;
   
 };
 
