@@ -14,7 +14,17 @@ typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
 #define dynPortStart 49152
 #define dynPortEnd 65535
 
-enum class States{
+enum class Code{
+
+  Success = 0,
+  RawSend = -1,
+  ActiveUnspec = -20,
+  Resources = -21,
+  DupConn = -22
+
+};
+
+enum class State{
   Listen,
   SynSent,
   SynRec,
@@ -64,7 +74,9 @@ class Tcb{
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
-    std::function<int(Tcb&, TcpPacket&, int)> currentState;
+    State currentState;
+    std::function<int(Tcb&, TcpPacket&, int)> stateLogic;
+    //0 active; 1 passive
     int passiveOpen;
   
 };

@@ -20,13 +20,32 @@ using namespace std;
 
 //range from dynPortStart to dynPortEnd
 unordered_set<uint16_t> usedPorts;
-//range from 0 to max_val(int)
-unordered_set<int> usedIds;
+//ids range from 0 to max val of int
 unordered_map<int, pair<LocalPair,RemotePair>> idMap;
 uint32_t bestLocalAddr;
 
 //if an active open, assumes initial packet has been sent.
 Tcb::Tcb(LocalPair l, RemotePair r, int passive) : lP(l), rP(r), passiveOpen(passive) {}
+
+void printError(Code c){
+  cout << "error: ";
+  switch(c){
+    case ActiveUnspec:
+      cout << "remote socket unspecified" << endl;
+      break;
+    case Resources:
+      cout << "insufficient resources" << endl;
+      break;
+    case DupConn:
+      cout << "connection already exists" << endl;
+      break;
+    case RawSend:
+      cout << "problem with raw socket sending" <<endl;
+      break;
+    default:
+      cout << "unknown" << endl;
+  }
+}
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -172,10 +191,7 @@ returns -1 for error or an id for success
 */
 int pickId(){
   for(0 i = 0; i <= INT_MAX; i++){
-    if(!usedIds.contains(i)){
-      usedIds.insert(i);
-      return i;
-    }
+    if(!idMap.contains(i)) return i;
   }
   return -1;
 }
@@ -186,10 +202,7 @@ reclaims id so that it can be used with new connections
 assumes the id is a valid one that is in use
 */
 void reclaimId(int id){
-
-  usedIds.erase(id);
   idMap.erase(id);
-  
 }
 
 /*pickDynAddr
@@ -201,42 +214,74 @@ uint32_t pickDynAddr(){
   return bestLocalAddr;
 }
 
+
+Code sendFirstSyn(Tcb& b, int socket){
+
+    vector<TcpOption> v;
+    TcpPacket p;
+  
+    p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,   0x0).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
+  
+    if(sendPacket(socket, b.rP.first, p) != -1){
+      b.sUna = b.iss;
+      b.sNxt = b.iss + 1;
+      return Code::Success;
+    }
+    else{
+      return Code::RawSend;
+    }
+}
+
 /*
 open
 models the open action for the application interface
 creates connection and kicks off handshake(if active open)
-returns -1 for error or a unique identifier analogous to a file descriptor.
+returns negative code for error or a unique identifier analogous to a file descriptor.
 */
 int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
 
-  Tcb b(lP, rP, passive);
+  Tcb newConn(lP, rP, passive);
   if(passive){
-    b.currentState = listen;
+    newConn.passiveOpen = 1;
+    newConn.currentState = State::Listen;
+    newConn.stateLogic = listen;
   }
   else{
     //unspecified remote info in active open does not make sense
-    if(rP.first == Unspecified || rP.second == Unspecified) return -1;
-    b.currentState = synSent;
+    if(rP.first == Unspecified || rP.second == Unspecified) static_cast<int>(Code::ActiveUnspec);
+    newConn.passiveOpen = 0;
+    newConn.currentState = State::SynSent;
+    newConn.stateLogic = synSent;
   }
   
   if(lP.second == Unspecified){
     uint16_t chosenPort = pickDynPort();
     if(chosenPort != Unspecified){
       lP.second = chosenPort;
-      b.lP = lP;
+      newConn.lP = lP;
     }
-    else return -1;
+    else return static_cast<int>(Code::Resources);
   }
   if(lP.first == Unspecified){
     uint32_t chosenAddr = pickDynAddr(); 
     lP.first = chosenAddr;
-    b.lP = lP;
+    newConn.lP = lP;
   }
   
   if(m.contains(lP)){
     //duplicate connection
     if(m[lP].contains(rP){
-      return -1;
+      Tcb& oldConn = m[lP][rP];
+      if(oldConn.currentState == State::Listen && !passive){
+        if(rP.first == Unspecified || rP.second == Unspecified) return static_cast<int>(Code::ActiveUnspec);
+        Code c = sendFirstSyn(oldConn,socket);
+        if(c != Code::Success) return static_cast<int>(c);
+        oldConn.passiveOpen = 0;
+        oldConn.currentState = State::SynSent;
+        oldConn.stateLogic = synSent;
+        return static_cast<int>(Code::Success);
+      }
+      else return static_cast<int>(Code::DupConn);
     }
   }
   else m[lP] = unordered_map<RemotePair, Tcb>();
@@ -244,32 +289,21 @@ int open(ConnectionMap& m, int passive, LocalPair lP, RemotePair rP){
   int id = pickId(s);
   pair p(LocalPair,RemotePair);
   if(id != -1) idMap[id] = p;
-  else return -1;
+  else return static_cast<int>(Code::Resources);
   
-  pickRealIsn(b);
-  b.rWnd = 8192;
+  pickRealIsn(newConn);
+  newConn.rWnd = 8192;
   
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
-  
-    vector<TcpOption> v;
-    vector<uint8_t> v1;
-    TcpPacket p;
-  
-    p.setFlags(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,   0x0).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setPayload(v1).setRealChecksum(lP.first,rP.first);
-  
-    if(sendPacket(socket,b.destAddress, p) != -1){
-      b.sUna = p.getSeqNum();
-      b.sNxt = p.getSeqNum() + p.getSegSize();
-      b.retransmit.push_back(p);
-    }
-    else{
+    Code c = sendFirstSyn(newConn,socket);
+    if(c != Code::Success){
       reclaimId(id);
-      return -1;
+      return static_cast<int>(c);
     }
   }
 
-  m[lP][rP] = b;
+  m[lP][rP] = newConn;
   return id;
   
 }
@@ -306,7 +340,7 @@ checks details of the packet and gives it to correct connection, or sends reset 
 to a valid connection
 */
 
-void multiplexIncoming(unordered_map<ConnectionTuple, Tcb>& connections, int socket){
+void multiplexIncoming(ConnectionMap& connections, int socket){
 
   IpPacket retPacket;
   if(recPacket(socket, retPacket) != -1){
@@ -317,10 +351,20 @@ void multiplexIncoming(unordered_map<ConnectionTuple, Tcb>& connections, int soc
     uint16_t sourcePort = p.getDestPort();
     uint16_t destPort = p.getSrcPort();
     
-    ConnectionTuple t(sourceAddress, sourcePort, destAddress, destPort);
-    if(connections.contains(t)){
-      Tcb& b = connections[t];
-      b.currentState(b,p,socket);
+    //drop the packet, 0 values are invalid
+    if(sourceAddress == 0 || destAddress == 0 || sourcePort == 0 || destPort == 0) return;
+    
+    LocalPair lP(sourceAddress, sourcePort);
+    RemotePair rP(destAddress, destPort);
+    
+    if(connections.contains(lP)){
+      unordered_map<RemotePair, Tcb>& rMap = connections[lP];
+      if(rMap.contains(rP)){
+        Tcb& b = rMap[rP];
+        b.currentState(b,p,socket);
+      }
+      if(
+
     }
     //fictional closed state
     else{
