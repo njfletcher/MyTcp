@@ -23,6 +23,7 @@ unordered_set<uint16_t> usedPorts;
 //ids range from 0 to max val of int
 unordered_map<int, pair<LocalPair,RemotePair>> idMap;
 uint32_t bestLocalAddr;
+ConnectionMap connections;
 
 //if an active open, assumes initial packet has been sent.
 Tcb::Tcb(LocalPair l, RemotePair r, uint8_t passive) : lP(l), rP(r), passiveOpen(passive) {}
@@ -47,6 +48,9 @@ void printError(Code c){
       break;
     case BadIncPacket:
       cout << "incoming packet has problems" << endl;
+      break;
+    case ConnRst:
+      cout << "connection reset" << endl;
       break;
     default:
       cout << "unknown" << endl;
@@ -220,6 +224,16 @@ uint32_t pickDynAddr(){
   return bestLocalAddr;
 }
 
+void removeConn(Tcb& b){
+
+  reclaimId(b.id);
+  connections[b.lP].erase(rP);
+  if(connections[b.lP].empty()){
+    connections.erase(b.lP);
+  }
+  
+}
+
 /*
 sendReset-
 This method sends a rst packet, given its acknum, ackflag, and seqnum. These fields are handled
@@ -273,7 +287,7 @@ models the open action for the application interface
 creates connection and kicks off handshake(if active open)
 returns negative code for error or a unique identifier analogous to a file descriptor.
 */
-int open(ConnectionMap& m, uint8_t passive, LocalPair lP, RemotePair rP){
+int open(uint8_t passive, LocalPair lP, RemotePair rP){
 
   Tcb newConn(lP, rP, passive);
   if(passive){
@@ -301,14 +315,14 @@ int open(ConnectionMap& m, uint8_t passive, LocalPair lP, RemotePair rP){
     newConn.lP = lP;
   }
   
-  if(m.contains(lP)){
+  if(connections.contains(lP)){
     //duplicate connection
-    if(m[lP].contains(rP){
-      Tcb& oldConn = m[lP][rP];
+    if(connections[lP].contains(rP){
+      Tcb& oldConn = connections[lP][rP];
       return static_cast<int>(oldConn.stateLogic(socket, oldConn, nullptr, Event::Open, &passive)); 
     }
   }
-  else m[lP] = unordered_map<RemotePair, Tcb>();
+  else connections[lP] = new unordered_map<RemotePair, Tcb>();
   
   int id = pickId(s);
   pair p(LocalPair,RemotePair);
@@ -317,14 +331,17 @@ int open(ConnectionMap& m, uint8_t passive, LocalPair lP, RemotePair rP){
     
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
+    pickRealIsn(newConn);
     Code c = sendFirstSyn(newConn,socket);
     if(c != Code::Success){
       reclaimId(id);
       return static_cast<int>(c);
     }
+    b.stateLogic = synSent;
   }
-
-  m[lP][rP] = newConn;
+  
+  newConn.id = id;
+  connections[lP][rP] = newConn;
   return id;
   
 }
@@ -337,7 +354,7 @@ checks details of the packet and gives it to correct connection, or sends reset 
 to a valid connection
 */
 
-Code multiplexIncoming(ConnectionMap& connections, int socket){
+Code multiplexIncoming(int socket){
 
   IpPacket retPacket;
   if(recPacket(socket, retPacket) != -1){
@@ -392,7 +409,6 @@ Code entryTcp(char* sourceAddr){
   if(socket < 0){
     return Code::RawSock;
   }
-  ConnectionMap connections;
   
   struct pollfd pollItem;
   pollItem.fd = socket;
@@ -401,7 +417,7 @@ Code entryTcp(char* sourceAddr){
   
     int numRet = poll(&pollItem, 1, -1);
     if((numRet > 0) && (pollItem.revents & POLLIN)){
-      multiplexIncoming(connections, socket);
+      multiplexIncoming(socket);
     }
   
   }
@@ -442,67 +458,6 @@ int synReceived(Tcb& b, TcpPacket& p, int socket){
     
 }
 
-int synSent(Tcb& b, TcpPacket& p, int socket){
-
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t segLen = p.getSegSize();
-  b.sWnd = p.getWindow();
-  b.irs = p.getSeqNum(); 
-  if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
-    return -1;
-  }
-  
-  b.rNxt = p.getSeqNum() + segLen;
-    
-  if(p.getFlag(TcpPacketFlags::syn)){
-    
-    if(p.getFlag(TcpPacketFlags::ack)){
-      //standard connection attempt
-        
-      if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
-        b.sUna = p.getAckNum();
-      }
-      else{
-        sendReset(socket, b.connT, 0, 0, p.getAckNum());
-        return 0;
-      }
-      
-      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
-      
-      if(sendPacket(socket,b.destAddress,sPacket) != -1){
-          b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
-          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-          b.currentState = established;
-      }
-    
-    }
-    else{
-      //simultaneous connection attempt
-      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
-      
-      if(sendPacket(socket,b.destAddress,sPacket) != -1){
-          b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
-          if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
-          b.currentState = synReceived;
-      }
-    }
-    
-  }
-  //if in syn-sent need to be sent a syn at the very least: send rst
-  else{
-    if(p.getFlag(TcpPacketFlags::ack)){
-      sendReset(socket, b.connT, 0, 0, p.getAckNum());
-    }
-    else{
-      sendReset(socket,b.connT, p.getSeqNum() + p.getSegSize(),1,0);
-    }
-  }
-   
-}
-
 /*
   all state logic functions are functions that are called when 
   the socket receives some signal(either packet from peer or command from user) for a connection
@@ -516,6 +471,107 @@ int synSent(Tcb& b, TcpPacket& p, int socket){
 
   all state functions must have Code ret, params: socket, Tcb, IpPacket*, Event, evData signature
 */
+
+Code synSent(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
+
+  if(pPtr != nullptr){
+    IpPacket& ipP = *pPtr;
+    TcpPacket& tcpP = ipP.getTcpPacket();
+    RemotePair recPair(ipP.getSrcAddr(), tcpP.getSrcPort());
+    
+    uint8_t ackFlag = tcpP.getFlag(TcpPacketFlags::ack);
+    if(ackFlag){
+      uint32_t ackN = tcpP.getAckNum();
+      if(ackN <= b.iss || ackN > b.sNxt){
+        if(!tcpP.getFlag(TcpPacketFlags::rst)) sendReset(socket, b.lP, b.rP, 0, 0, ackN);
+        return Code::BadIncPacket;
+      }
+    }
+    
+    uint32_t seqN = tcpP.getSeqNum();
+    if(tcpP.getFlag(TcpPacketFlags::rst)){
+      //RFC 5961, preventing blind reset attack. TODO: research if anything else is needed.
+      if(seqN != b.rNxt) return Code::BadIncPacket;
+      
+      if(ackFlag){
+        removeConn(b);
+        return Code::ConnRst;
+      }
+      else return Code::BadIncPacket; 
+    
+    }
+    
+    
+    vector<TcpOption> options;
+    vector<uint8_t> data;
+    TcpPacket sPacket;
+  
+    uint32_t segLen = p.getSegSize();
+    b.sWnd = p.getWindow();
+    b.irs = p.getSeqNum(); 
+    if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
+      return -1;
+    }
+  
+    b.rNxt = p.getSeqNum() + segLen;
+    
+    if(p.getFlag(TcpPacketFlags::syn)){
+    
+      if(p.getFlag(TcpPacketFlags::ack)){
+        //standard connection attempt
+        
+        if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
+          b.sUna = p.getAckNum();
+        }
+        else{
+          sendReset(socket, b.connT, 0, 0, p.getAckNum());
+          return 0;
+        }
+      
+        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+        if(sendPacket(socket,b.destAddress,sPacket) != -1){
+            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+            b.currentState = established;
+        }
+    
+      }
+      else{
+        //simultaneous connection attempt
+        sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0,    0x0).setSrcPort(packetSrcPort).setDestPort(packetDestPort).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.sourceAddress, b.destAddress);
+      
+        if(sendPacket(socket,b.destAddress,sPacket) != -1){
+            b.sNxt = b.sNxt + sPacket.payload.size(); // ack doesnt affect seq num
+            if(sPacket.payload.size()) b.retransmit.push_back(sPacket);
+            b.currentState = synReceived;
+        }
+      }
+    
+    }
+    //if in syn-sent need to be sent a syn at the very least: send rst
+    else{
+      if(p.getFlag(TcpPacketFlags::ack)){
+        sendReset(socket, b.connT, 0, 0, p.getAckNum());
+      }
+      else{
+        sendReset(socket,b.connT, p.getSeqNum() + p.getSegSize(),1,0);
+      }
+    }
+  }
+  else{
+      switch(ev){
+      case Event::None:
+        return Code::ProgramError;
+      case Event::Open:
+        return Code::DupConn;
+      case default:
+        return Code::DupConn;
+    }
+  
+  }
+   
+}
 
 Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
 
@@ -554,6 +610,7 @@ Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
         b.stateLogic = synReceived;
         if(b.rP.first == Unspecified) b.rP.first = recPair.first;
         if(b.rP.second == Unspecified) b.rP.second = recPair.second;
+        //TODO 3.10.7.2 possibly trigger another event for processing of data and other control flags here: maybe forward packet without syn and ack flags set?
         return Code::Success;
       }
       else return Code::RawSend;
@@ -566,7 +623,7 @@ Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
     switch(ev){
       case Event::None:
         return Code::ProgramError;
-      case Event::Listen:
+      case Event::Open:
         uint8_t passive = evData[0];
         if(!passive){
           if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec;
@@ -584,4 +641,7 @@ Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
   }
 
 }
+
+
+
 

@@ -22,7 +22,8 @@ enum class Code{
   BadIncPacket = -3,
   ActiveUnspec = -20,
   Resources = -21,
-  DupConn = -22
+  DupConn = -22,
+  ConnRst = -23
 
 };
 
@@ -55,6 +56,8 @@ class Tcb{
   public:
     Tcb() = default;
     Tcb(LocalPair l, RemotePair r, uint8_t passive);
+    
+    int id;
     
     //all multi-byte fields are guaranteed to be in host order.
     LocalPair lP;
