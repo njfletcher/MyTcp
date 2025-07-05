@@ -57,6 +57,74 @@ void printError(Code c){
   }
 }
 
+
+Code ListenS::processEvent(int socket, Tcb& b, Event& e){ return Code::ProgramError; }
+Code ListenS::processEvent(int socket, Tcb& b, SendEv& se);
+Code ListenS::processEvent(int socket, Tcb& b, RecEv& se);
+Code ListenS::processEvent(int socket, Tcb& b, CloseEv& se);
+Code ListenS::processEvent(int socket, Tcb& b, AbortEv& se);
+Code ListenS::processEvent(int socket, Tcb& b, StatusEv& se);
+
+Code ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
+
+  uint8_t passive = oe.passive;
+  if(!passive){
+    if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec;
+    Code c = sendFirstSyn(b,socket);  
+    if(c != Code::Success) return c;
+    b.passiveOpen = 0;
+    b.stateLogic = synSent;
+    return Code::Success;
+  }
+  else return Code::DupConn;
+  
+}
+
+Code ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
+
+  IpPacket& ipP = se.packet;
+  TcpPacket& tcpP = ipP.getTcpPacket();
+  RemotePair recPair(ipP.getSrcAddr(), tcpP.getSrcPort());
+    
+  //if im in the listen state, I havent sent anything, so rst could not be referring to anything valid.
+  if(tcpP.getFlag(TcpPacketFlags::rst)){
+    return Code::BadIncPacket;
+  }
+  
+  //if im in the listen state, I havent sent anything. so any ack at all is an unacceptable ack
+  if(tcpP.getFlag(TcpPacketFlags::ack)){
+    sendReset(socket, b.lP, recPair, 0, 0, tcpP.getAckNum());
+    return Code::BadIncPacket;
+  }
+  
+  if(tcpP.getFlag(TcpPacketFlags::syn)){
+
+    uint32_t segLen = tcpP.getSegSize();
+    pickRealIsn(b);
+    tcpP.irs = tcpP.getSeqNum();
+    tcpP.rNxt = tcpP.getSeqNum() + 1;
+      
+    vector<TcpOption> options;
+    vector<uint8_t> data;
+    TcpPacket sPacket;
+      
+    sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(b.lP.second).setDestPort(recPair.second).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, recPair.first);
+      
+    if(sendPacket(socket,recPair.first,sPacket) != -1){
+      b.sUna = b.iss;
+      b.sNxt = b.iss + 1;
+      b.stateLogic = synReceived;
+      if(b.rP.first == Unspecified) b.rP.first = recPair.first;
+      if(b.rP.second == Unspecified) b.rP.second = recPair.second;
+      //TODO 3.10.7.2 possibly trigger another event for processing of data and other control flags here: maybe forward packet without syn and ack flags set?
+      return Code::Success;
+    }
+    else return Code::RawSend;
+  }
+  else return Code::BadIncPacket;
+
+}
+
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
   OPENSSL_free(outdigest);
@@ -573,74 +641,6 @@ Code synSent(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
    
 }
 
-Code listen(int socket, Tcb& b, IpPacket* pPtr, Event ev, uint8_t* evData){
-
-  if(pPtr != nullptr){
-    IpPacket& ipP = *pPtr;
-    TcpPacket& tcpP = ipP.getTcpPacket();
-    RemotePair recPair(ipP.getSrcAddr(), tcpP.getSrcPort());
-    
-    //if im in the listen state, I havent sent anything, so rst could not be referring to anything valid.
-    if(tcpP.getFlag(TcpPacketFlags::rst)){
-      return Code::BadIncPacket;
-    }
-  
-    //if im in the listen state, I havent sent anything. so any ack at all is an unacceptable ack
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      sendReset(socket, b.lP, recPair, 0, 0, tcpP.getAckNum());
-      return Code::BadIncPacket;
-    }
-  
-    if(tcpP.getFlag(TcpPacketFlags::syn)){
-
-      uint32_t segLen = tcpP.getSegSize();
-      pickRealIsn(b);
-      tcpP.irs = tcpP.getSeqNum();
-      tcpP.rNxt = tcpP.getSeqNum() + 1;
-      
-      vector<TcpOption> options;
-      vector<uint8_t> data;
-      TcpPacket sPacket;
-      
-      sPacket.setFlags(0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x1,    0x0).setSrcPort(b.lP.second).setDestPort(recPair.second).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, recPair.first);
-      
-      if(sendPacket(socket,recPair.first,sPacket) != -1){
-        b.sUna = b.iss;
-        b.sNxt = b.iss + 1;
-        b.stateLogic = synReceived;
-        if(b.rP.first == Unspecified) b.rP.first = recPair.first;
-        if(b.rP.second == Unspecified) b.rP.second = recPair.second;
-        //TODO 3.10.7.2 possibly trigger another event for processing of data and other control flags here: maybe forward packet without syn and ack flags set?
-        return Code::Success;
-      }
-      else return Code::RawSend;
-    }
-    else return Code::BadIncPacket;
-    
-  }
-  else{
-  
-    switch(ev){
-      case Event::None:
-        return Code::ProgramError;
-      case Event::Open:
-        uint8_t passive = evData[0];
-        if(!passive){
-          if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec;
-          Code c = sendFirstSyn(b,socket);  
-          if(c != Code::Success) return c;
-          b.passiveOpen = 0;
-          b.stateLogic = synSent;
-          return Code::Success;
-        }
-        else return Code::DupConn;
-      case default:
-        return Code::DupConn;
-    }
-  
-  }
-
-}
 
 
 

@@ -42,13 +42,16 @@ enum class State{
 };
 
 enum class Event{
+  None,
+  //user events
   Open,
   Send,
   Receive,
   Close,
   Abort,
   Status,
-  None
+  //inner events
+  Segment
 };
 
 class Tcb{
@@ -86,7 +89,77 @@ class Tcb{
   
 };
 
-int pickRealIsn(Tcb& block);
-void activeOpen(char* destAddr, Tcb& b);
+
+class Event{};
+
+class OpenEv : public Event{
+  public:
+    uint8_t passive;
+};
+class SegmentEv : public Event{
+  public:
+    IpPacket& packet;
+};
+
+class State{
+  public:
+    virtual Code processEvent(int socket, Tcb& b, Event& e);
+    virtual Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    virtual Code processEvent(int socket, Tcb& b, SegmentEv& se);
+};
+
+class ListenS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, Event& e);
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
+    Code processEvent(int socket, Tcb& b, SendEv& se);
+    Code processEvent(int socket, Tcb& b, RecEv& se);
+    Code processEvent(int socket, Tcb& b, CloseEv& se);
+    Code processEvent(int socket, Tcb& b, AbortEv& se);
+    Code processEvent(int socket, Tcb& b, StatusEv& se);
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
