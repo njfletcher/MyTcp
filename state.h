@@ -100,17 +100,21 @@ class SegmentEv : public Event{
   public:
     IpPacket& packet;
 };
+class FurtherProcEv: public Event{
+};
 
 class State{
   public:
-    virtual Code processEvent(int socket, Tcb& b, Event& e);
-    virtual Code processEvent(int socket, Tcb& b, OpenEv& oe);
     virtual Code processEvent(int socket, Tcb& b, SegmentEv& se);
+    virtual Code processEvent(int socket, Tcb& b, SendEv& se);
+    virtual Code processEvent(int socket, Tcb& b, RecEv& se);
+    virtual Code processEvent(int socket, Tcb& b, CloseEv& se);
+    virtual Code processEvent(int socket, Tcb& b, AbortEv& se);
+    virtual Code processEvent(int socket, Tcb& b, StatusEv& se);
 };
 
 class ListenS : State{
   public:
-    Code processEvent(int socket, Tcb& b, Event& e);
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
     Code processEvent(int socket, Tcb& b, SegmentEv& se);
     Code processEvent(int socket, Tcb& b, SendEv& se);
@@ -119,6 +123,18 @@ class ListenS : State{
     Code processEvent(int socket, Tcb& b, AbortEv& se);
     Code processEvent(int socket, Tcb& b, StatusEv& se);
 };
+
+class SynSentS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
+    Code processEvent(int socket, Tcb& b, SendEv& se);
+    Code processEvent(int socket, Tcb& b, RecEv& se);
+    Code processEvent(int socket, Tcb& b, CloseEv& se);
+    Code processEvent(int socket, Tcb& b, AbortEv& se);
+    Code processEvent(int socket, Tcb& b, StatusEv& se);
+};
+
 
 
 
