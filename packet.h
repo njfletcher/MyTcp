@@ -47,19 +47,14 @@ enum class TcpPacketFlags{
   ack = 4,
   urg = 5,
   ece = 6,
-  cwr = 7,
-  none = 8
-	
+  cwr = 7
 };
-
-TcpPacketFlags& operator++(TcpPacketFlags& p, int);
-
 
 class TcpPacket{
 
   public:
     TcpPacket() = default;
-    TcpPacket& setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin);
+    TcpPacket& setFlag(TcpPacketFlags flag);
     TcpPacket& setSrcPort(uint16_t source);
     TcpPacket& setDestPort(uint16_t dest);
     TcpPacket& setSeq(uint32_t seq);
@@ -163,11 +158,8 @@ class IpOption{
 enum class IpPacketFlags{
   moreFrag = 0,
   dontFrag = 1,
-  reserved = 2,
-  none = 3
+  reserved = 2
 };
-
-IpPacketFlags& operator++(IpPacketFlags& p, int);
 
 class IpPacket{
 
@@ -180,7 +172,7 @@ class IpPacket{
     IpPacket& setEcn(uint8_t ecn);
     IpPacket& setTotLen(uint16_t len);
     IpPacket& setIdent(uint16_t ident);
-    IpPacket& setFlags(uint8_t r, uint8_t df, uint8_t mf);
+    IpPacket& setFlag(IpPacketFlags f);
     IpPacket& setFragOff(uint16_t frag);
     IpPacket& setTtl(uint8_t ttl);
     IpPacket& setProto(uint8_t proto);

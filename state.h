@@ -27,38 +27,11 @@ enum class Code{
 
 };
 
-enum class State{
-  Listen,
-  SynSent,
-  SynRec,
-  Established,
-  FinWait1,
-  FinWait2,
-  CloseWait,
-  Closing,
-  LastAck,
-  TimeWait,
-  Closed
-};
-
-enum class Event{
-  None,
-  //user events
-  Open,
-  Send,
-  Receive,
-  Close,
-  Abort,
-  Status,
-  //inner events
-  Segment
-};
-
 class Tcb{
 
   public:
     Tcb() = default;
-    Tcb(LocalPair l, RemotePair r, uint8_t passive);
+    Tcb(LocalPair l, RemotePair r, bool passive);
     
     int id;
     
@@ -83,9 +56,9 @@ class Tcb{
     uint32_t rUp;
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
-    std::function<int(Tcb&, TcpPacket&, int)> stateLogic;
-    //0 active; 1 passive
-    uint8_t passiveOpen;
+    State& currentState;
+    
+    bool passiveOpen;
   
 };
 
@@ -94,7 +67,7 @@ class Event{};
 
 class OpenEv : public Event{
   public:
-    uint8_t passive;
+    bool passive;
 };
 class SegmentEv : public Event{
   public:
@@ -105,35 +78,67 @@ class FurtherProcEv: public Event{
 
 class State{
   public:
+    virtual Code processEvent(int socket, Tcb& b, OpenEv& oe);
     virtual Code processEvent(int socket, Tcb& b, SegmentEv& se);
-    virtual Code processEvent(int socket, Tcb& b, SendEv& se);
-    virtual Code processEvent(int socket, Tcb& b, RecEv& se);
-    virtual Code processEvent(int socket, Tcb& b, CloseEv& se);
-    virtual Code processEvent(int socket, Tcb& b, AbortEv& se);
-    virtual Code processEvent(int socket, Tcb& b, StatusEv& se);
+
 };
 
 class ListenS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
     Code processEvent(int socket, Tcb& b, SegmentEv& se);
-    Code processEvent(int socket, Tcb& b, SendEv& se);
-    Code processEvent(int socket, Tcb& b, RecEv& se);
-    Code processEvent(int socket, Tcb& b, CloseEv& se);
-    Code processEvent(int socket, Tcb& b, AbortEv& se);
-    Code processEvent(int socket, Tcb& b, StatusEv& se);
 };
 
 class SynSentS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
     Code processEvent(int socket, Tcb& b, SegmentEv& se);
-    Code processEvent(int socket, Tcb& b, SendEv& se);
-    Code processEvent(int socket, Tcb& b, RecEv& se);
-    Code processEvent(int socket, Tcb& b, CloseEv& se);
-    Code processEvent(int socket, Tcb& b, AbortEv& se);
-    Code processEvent(int socket, Tcb& b, StatusEv& se);
 };
+
+class SynRecS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
+};
+
+class EstabS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class FinWait1S : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class FinWait2S : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class CloseWaitS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class ClosingS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class LastAckS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+class TimeWaitS : State{
+  public:
+    Code processEvent(int socket, Tcb& b, OpenEv& oe);
+};
+
+
+
+
 
 
 

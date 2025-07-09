@@ -219,65 +219,13 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   return *this;
 }
 
-
-
-TcpPacket& TcpPacket::setFlags(uint8_t cwr, uint8_t ece, uint8_t urg, uint8_t ack, uint8_t psh, uint8_t rst, uint8_t syn, uint8_t fin){
-  
-  uint8_t byte = 0;
-  byte = byte | ((cwr & 0x1) << static_cast<int>(TcpPacketFlags::cwr));
-  byte = byte | ((ece & 0x1) << static_cast<int>(TcpPacketFlags::ece));
-  byte = byte | ((urg & 0x1) << static_cast<int>(TcpPacketFlags::urg));
-  byte = byte | ((ack & 0x1) << static_cast<int>(TcpPacketFlags::ack));
-  byte = byte | ((psh & 0x1) << static_cast<int>(TcpPacketFlags::psh));
-  byte = byte | ((rst & 0x1) << static_cast<int>(TcpPacketFlags::rst));
-  byte = byte | ((syn & 0x1) << static_cast<int>(TcpPacketFlags::syn));
-  byte = byte | ((fin & 0x1) << static_cast<int>(TcpPacketFlags::fin));
-
-  flags = byte;
-  return *this;
-}
-
-TcpPacketFlags& operator++(TcpPacketFlags& p, int i){
-	
-  switch(p){	
-	  case TcpPacketFlags::cwr:
-		  p = TcpPacketFlags::ece;
-		  break;
-	  case TcpPacketFlags::ece:
-		  p = TcpPacketFlags::urg;
-		  break;
-	  case TcpPacketFlags::urg:
-		  p = TcpPacketFlags::ack;
-		  break;
-	  case TcpPacketFlags::ack:
-		  p = TcpPacketFlags::psh;
-		  break;
-	  case TcpPacketFlags::psh:
-		  p = TcpPacketFlags::rst;
-		  break;
-	  case TcpPacketFlags::rst:
-		  p = TcpPacketFlags::syn;
-		  break;
-	  case TcpPacketFlags::syn:
-		  p = TcpPacketFlags::fin;
-		  break;
-	  case TcpPacketFlags::fin:
-		  p = TcpPacketFlags::none;
-		  break;
-	  case TcpPacketFlags::none:
-		  p = TcpPacketFlags::none;
-		  break;	
-
-  }
-  return p;
-
-}
-
 uint8_t TcpPacket::getFlag(TcpPacketFlags flag){
+  return (flags >> static_cast<int>(flag)) & 0x1;
+}
 
-	if (flag == TcpPacketFlags::none) return 0;
-	
-	return (flags >> static_cast<int>(flag)) & 0x1;
+TcpPacket& TcpPacket::setFlag(TcpPacketFlags flag){
+  flags = flags | (0x1 << static_cast<int>(flag));
+  return *this;
 }
 
 uint8_t TcpPacket::getDataOffset(){
@@ -304,7 +252,7 @@ void TcpPacket::print(){
 	cout << "dataOffset: " << static_cast<unsigned int>(getDataOffset()) << endl;
 	cout << "reserved: " << static_cast<unsigned int>(getReserved())  << endl;
 	cout << "+++Flags+++" << endl;
-	for(TcpPacketFlags p = TcpPacketFlags::cwr; p != TcpPacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
+	for(int i = static_cast<int>(TcpPacketFlags::fin); i < static_cast<int>(TcpPacketFlags::cwr) + 1; i++) cout << "flag " << p << ": " << static_cast<unsigned int>(getFlag(static_cast<TcpPacketFlags>(p))) << endl;
 	cout << "+++++++++++" << endl;
 	cout << "window: " << window << endl;
 	cout << "checksum: " << checksum  << endl;
@@ -464,16 +412,6 @@ IpPacket& IpPacket::setIdent(uint16_t ident){
   return *this;
 }
 
-IpPacket& IpPacket::setFlags(uint8_t r, uint8_t df, uint8_t mf){
-  uint16_t flags = 0;
-  flags = flags | ((r & 0x1) << static_cast<int>(IpPacketFlags::reserved));
-  flags = flags | ((df & 0x1) << static_cast<int>(IpPacketFlags::dontFrag));
-  flags = flags | ((mf & 0x1) << static_cast<int>(IpPacketFlags::moreFrag));
-  
-  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numIpPacketFlags));
-  return *this;
-}
-
 IpPacket& IpPacket::setFragOff(uint16_t frag){
   flagsFragOffset = (flagsFragOffset & 0xE000) | (frag & 0x01FFF);
   return *this;
@@ -531,33 +469,21 @@ uint8_t IpPacket::getEcn(){
   return (dscpEcn & 0x3);
 }
 uint8_t IpPacket::getFlag(IpPacketFlags flag){
-  if (flag == IpPacketFlags::none) return 0;
   uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - numIpPacketFlags)) & 0xFF;
   return (flags >> static_cast<int>(flag)) & 0x1;
 }
+
+IpPacket& IpPacket::setFlag(IpPacketFlags flag){
+  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - numIpPacketFlags)) & 0xFF;
+  flags = flags | (0x1 << static_cast<int>(flag));
+  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numIpPacketFlags));
+  return *this;
+}
+
 uint16_t IpPacket::getFragOffset(){
   return (flagsFragOffset & 0x01FFF);
 }
 
-IpPacketFlags& operator++(IpPacketFlags& p, int i){
-	
-  switch(p){	
-	  case IpPacketFlags::moreFrag:
-		  p = IpPacketFlags::dontFrag;
-		  break;
-	  case IpPacketFlags::dontFrag:
-		  p = IpPacketFlags::reserved;
-		  break;
-	  case IpPacketFlags::reserved:
-		  p = IpPacketFlags::none;
-		  break;
-	  case IpPacketFlags::none:
-		  p = IpPacketFlags::none;
-		  break;
-  }
-  return p;
-
-}
 
 void IpPacket::print(){
 
@@ -569,7 +495,7 @@ void IpPacket::print(){
 	cout << "total length: " << totalLength << endl;
 	cout << "identification: " << identification  << endl;
 	cout << "///Flags///" << endl;
-	for(IpPacketFlags p = IpPacketFlags::moreFrag; p != IpPacketFlags::none; p++) cout << "flag " << static_cast<unsigned int>(p) << ": " << static_cast<unsigned int>(getFlag(p)) << endl;
+	for(int i = static_cast<int>(IpPacketFlags::moreFrag); i < static_cast<int>(IpPacketFlags::reserved) + 1; i++) cout << "flag " << p << ": " << static_cast<unsigned int>(getFlag(static_cast<IpPacketFlags(p))) << endl;
 	cout << "///////////" << endl;
 	cout << "fragment offset: " << getFragOffset() << endl;
 	cout << "ttl: " << static_cast<unsigned int>(ttl)  << endl;
