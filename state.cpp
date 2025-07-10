@@ -28,31 +28,39 @@ ConnectionMap connections;
 Tcb::Tcb(LocalPair l, RemotePair r, bool passive) : lP(l), rP(r), passiveOpen(passive) {}
 
 void printError(Code c){
-  cout << "error: ";
+  string s = "error: ";
   switch(c){
     case ActiveUnspec:
-      cout << "remote socket unspecified" << endl;
+      s += "remote socket unspecified";
       break;
     case Resources:
-      cout << "insufficient resources" << endl;
+      s += "insufficient resources";
       break;
     case DupConn:
-      cout << "connection already exists" << endl;
+      s += "connection already exists";
       break;
     case RawSend:
-      cout << "problem with raw socket sending" <<endl;
+      s += "problem with raw socket sending";
       break;
     case ProgramError:
-      cout << "problem with usage of program" << endl;
+      s += "problem with usage of program";
       break;
     case BadIncPacket:
-      cout << "incoming packet has problems" << endl;
+      s += "incoming packet has problems";
       break;
     case ConnRst:
-      cout << "connection reset" << endl;
+      s += "connection reset";
+      break;
+    case ConnRef:
+      s += "connection refused";
+      break;
+    case ConnClosing:
+      s += "connection closing";
       break;
     default:
-      cout << "unknown" << endl;
+      s += "unknown";
+      
+    cout << s << endl;
   }
 }
 
@@ -111,38 +119,26 @@ Code sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ac
     
 }
 
-/*
-sendFirstSyn
-sends the initiating syn packet needed by an active open
-made a separate method because it has relatively hardcoded values/effects and
-the rfcs do not recommend sending data with it.
-*/
-Code sendFirstSyn(Tcb& b, int socket){
+Code ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
-    vector<TcpOption> v;
-    TcpPacket p;
-   p.setFlag(TcpPacketFlags::syn).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
+  vector<TcpOption> v;
+  TcpPacket p;
+  bool passive = oe.passive;
+  if(!passive){
+    if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec; p.setFlag(TcpPacketFlags::syn).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
   
     if(sendPacket(socket, b.rP.first, p) != -1){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
+      b.passiveOpen = false;
+      b.currentState = SynSentS();
       return Code::Success;
     }
     else{
       return Code::RawSend;
     }
-}
-
-Code ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
-
-  bool passive = oe.passive;
-  if(!passive){
-    if(b.rP.first == Unspecified || b.rP.second == Unspecified) return Code::ActiveUnspec;
-    Code c = sendFirstSyn(b,socket);  
-    if(c != Code::Success) return c;
-    b.passiveOpen = false;
-    b.currentState = SynSentS();
-    return Code::Success;
+    
+    
   }
   else return Code::DupConn;
   
@@ -238,10 +234,10 @@ Code SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   if(!checkSecurity(b,ipP)){
     if(tcpP.getFlag(TcpPacketFlags::ack)){
-      sendReset(socket, lP, rP, 0, false, tcpP.getAckNum());
+      sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
     }
     else{
-      sendReset(socket, lP, rP, seqN + tcpP.getSegSize(),true,0);
+      sendReset(socket, b.lP, b.rP, seqN + tcpP.getSegSize(),true,0);
     }
     return Code::BadIncPacket;
   }
@@ -312,10 +308,107 @@ Code SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
     return Code::BadIncPacket;
   }
   
-
-
-
-
+  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  
+      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
+      if(tcpP.getSeqNum() != b.rNxt){
+      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+        if(sendPacket(socket,b.rP.first,sPacket) != -1){
+          return Code::BadIncPacket;
+        }
+        else return Code::RawSock;
+        
+      }
+      
+      if(b.passiveOpen){
+        b.currentState = ListenS();
+        return Code::Success;
+      }
+      else{
+        removeConn(b);
+        return Code::ConnRef;
+      }
+      //TODO : flush retransmission queue
+      
+  }
+  
+  if(!checkSecurity(b,ipP)){
+    if(tcpP.getFlag(TcpPacketFlags::ack)){
+      sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
+    }
+    else{
+      sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
+    }
+    return Code::BadIncPacket;
+  }
+  
+  if(tcpP.getFlag(TcpPacketFlags::syn){
+  
+    if(b.passiveOpen){
+      b.currentState = ListenS();
+      return Code::Success;
+    }
+    
+    //challenge ack recommended by RFC 5961  
+sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+    if(sendPacket(socket,b.rP.first,sPacket) != -1){
+      return Code::BadIncPacket;
+    }
+    else return Code::RawSock;
+    
+  }
+  
+  
+  if(tcpP.getFlag(TcpPacketFlags::ack){
+  
+    uint32_t ackNum = tcpP.getAckNum();
+  
+    //RFC 5661S5 injection attack check
+    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
+       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+      if(sendPacket(socket,b.rP.first,sPacket) != -1){
+        return Code::BadIncPacket;
+      }
+      else return Code::RawSock;
+      
+    }
+      
+    if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
+      b.currentState = EstabS();
+      b.sWnd = tcpP.getWindow();
+      b.sWl1 = tcp.getSeqNum();
+      b.sWl2 = ackNum();
+      //TODO trigger further processing event
+      return Code::Success;
+    }
+    else{
+      Code c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
+      if(c != Code::Success) return c;
+      else return Code::BadIncPacket;
+      
+    }
+  }
+  else return Code::BadIncPacket;
+  
+  if(tcpP.getFlag(TcpPacketFlags::fin)){
+    
+    b.rNxt = tcpP.getSeqNum() + 1; //advancing rNxt over fin
+    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+    if(sendPacket(socket,b.rP.first,sPacket) != -1){
+      b.currentState = CloseWaitS();
+      //TODO: return conn closing to any pending recs and push any waiting segments.
+      return Code::ConnClosing;
+    }
+    else return Code::RawSock;
+    
+    
+  }
+  
+  return Code::Success;
 }
 
 
@@ -530,12 +623,21 @@ int open(bool passive, LocalPair lP, RemotePair rP){
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
     pickRealIsn(newConn);
-    Code c = sendFirstSyn(newConn,socket);
-    if(c != Code::Success){
-      reclaimId(id);
-      return static_cast<int>(c);
+    vector<TcpOption> v;
+    TcpPacket p;
+   p.setFlag(TcpPacketFlags::syn).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
+  
+    if(sendPacket(socket, b.rP.first, p) != -1){
+      b.sUna = b.iss;
+      b.sNxt = b.iss + 1;
+      b.currentState = SynSentS();
     }
-    b.currentState = SynSentS();
+    else{
+      reclaimId(id);
+      return Code::RawSend;
+    }
+
+    
   }
   
   newConn.id = id;
