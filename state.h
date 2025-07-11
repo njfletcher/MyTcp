@@ -14,19 +14,29 @@ typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
 #define dynPortStart 49152
 #define dynPortEnd 65535
 
-enum class Code{
-
+//status of the fuzzer itself: did it fail and how so?
+enum class LocalStatus{
   Success = 0,
-  RawSock = -1,
-  ProgramError = -2,
-  BadIncPacket = -3,
+  RawSocket = 1
+};
+
+//status of the tcp being fuzzed: did it fail and how so?
+enum class RemoteStatus{
+  Success = 0,
+  UnexpectedPacket = 1,
+  MalformedPacket = 2,
+  SuspectedCrash = 3
+};
+
+//Codes that are specified by Tcp rfcs.
+//These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
+enum class TcpCode{
   ActiveUnspec = -20,
   Resources = -21,
   DupConn = -22,
   ConnRst = -23,
   ConnRef = -24,
   ConnClosing = -25
-
 };
 
 class Tcb{
