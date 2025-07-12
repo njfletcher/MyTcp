@@ -25,7 +25,7 @@ class TcpOption{
   public:
     TcpOption() = default;
     TcpOption(uint8_t k, uint8_t len, uint8_t hasLen, std::vector<uint8_t> data);
-    int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
+    RemoteStatus fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
     uint16_t getSize();
@@ -68,7 +68,7 @@ class TcpPacket{
     TcpPacket& setOptions(std::vector<TcpOption> list);
     TcpPacket& setPayload(std::vector<uint8_t> payload);
     
-    int fromBuffer(uint8_t* buffer, int numBytes);
+    RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
 
@@ -146,7 +146,7 @@ class IpOption{
     IpOption(uint8_t t, uint8_t len, uint8_t hasLen);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
-    int fromBuffer(uint8_t* bufferPtr, int numBytesRemaining);
+    RemoteStatus fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
   private:
     uint8_t type;
     uint8_t length;
@@ -185,7 +185,7 @@ class IpPacket{
     uint32_t getSrcAddr();
     uint32_t getDestAddr();
     
-    int fromBuffer(uint8_t* buffer, int numBytes);
+    RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
     TcpPacket& getTcpPacket();

@@ -25,8 +25,17 @@ enum class RemoteStatus{
   Success = 0,
   UnexpectedPacket = 1,
   MalformedPacket = 2,
-  SuspectedCrash = 3
+  SuspectedCrash = 3,
+  MalicPacket = 4
 };
+
+class Status{
+  public:
+    LocalStatus ls;
+    RemoteStatus rs;
+    Status(LocalStatus l = LocalStatus::Success, RemoteStatus r = RemoteStatus::Success);
+};
+
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer

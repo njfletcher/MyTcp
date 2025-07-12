@@ -4,8 +4,8 @@
 #define TCP_PROTO 6 
 
 int bindSocket(uint32_t sourceAddr);
-int sendPacket(int sock, uint32_t destAddr, TcpPacket& p);
-int recPacket(int sock, IpPacket& packet);
+LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p);
+Status recPacket(int sock, IpPacket& packet);
 
 template<typename T>
 T toAltOrder(T val){

@@ -37,7 +37,7 @@ int bindSocket(uint32_t sourceAddr){
 
 }
 
-int sendPacket(int sock, uint32_t destAddr, TcpPacket& p){  
+LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p){  
   struct sockaddr_in dest;
   dest.sin_family = AF_INET;
   dest.sin_addr.s_addr = toAltOrder<uint32_t>(destAddr);
@@ -50,28 +50,34 @@ int sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   ssize_t numBytes = sendto(sock, ipBuffer, buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
   if(numBytes < 0){
     perror("Cannot send message. ");
-    return -1;
+    return LocalStatus::RawSocket;
   }
   
-  return 0;
+  return LocalStatus::Success;
 }
 
-int recPacket(int sock, IpPacket& packet){
+Status recPacket(int sock, IpPacket& packet){
 
   ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
 	
   if(numRec < 0){
     perror("Cannot receive message. ");
-    return -1;
+    return Status(LocalStatus::RawSocket);
   }   
 	
-  int ret = packet.fromBuffer(ipBuffer, numRec);
+  RemoteStatus rs = packet.fromBuffer(ipBuffer, numRec);
   if(ret < 0){
     perror("Bad packet. ");
-    return -1;
+    return Status(rs);
   }
 	
-  return 0;
+  return Status();
 }	
+      	
+      	
+      	
+      	
+      	
+      	
       	
       	
