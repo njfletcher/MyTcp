@@ -3,16 +3,21 @@
 #include <cstdint>
 #include "packet.h"
 #include <utility>
+#include <queue>
 
 #define Unspecified 0
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
+
+#define dynPortStart 49152
+#define dynPortEnd 65535
+
+#define recBufferMax 500
+#define sendBufferMax 500
 
 typedef pair<uint32_t, uint16_t> LocalPair;
 typedef pair<uint32_t, uint16_t> RemotePair;
 typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
 
-#define dynPortStart 49152
-#define dynPortEnd 65535
 
 //status of the fuzzer itself: did it fail and how so?
 enum class LocalStatus{
@@ -45,7 +50,8 @@ enum class TcpCode{
   DupConn = -22,
   ConnRst = -23,
   ConnRef = -24,
-  ConnClosing = -25
+  ConnClosing = -25,
+  UrgentData = -26
 };
 
 class Tcb{
@@ -78,6 +84,12 @@ class Tcb{
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
     uint32_t maxSWnd;
+    //pointer to place in buffer where app has not consumed yet.
+    uint16_t appNewData;
+    bool urgentSignaled;
+    
+    std::queue<uint8_t> recBuffer;
+    std::queue<uint8_t> sendBuffer;
     
     State& currentState;
     

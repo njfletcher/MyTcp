@@ -110,9 +110,8 @@ bool verifyRecWindow(Tcb& b, TcpPacket& p){
   uint32_t seqNum = p.getSeqNum();
   if(segLen > 0){
     if(rWnd >0){
-      uint32_t lastByte = seqNum + segLen -1;
-      return (b.rNxt <= lastByte && lastByte < (b.rNxt + b.rWnd));
-    
+      uint32_t lastByte = seqNum + segLen - 1;
+      return ((b.rNxt <= seqNum && seqNum < (b.rNxt + b.rWnd)) || (b.rNxt <= lastByte && lastByte < (b.rNxt + b.rWnd)));
     }
     else return false;
   
@@ -475,42 +474,41 @@ Code EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
   vector<uint8_t> data;
   TcpPacket sPacket;
   
+  uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
   if(!verifyRecWindow(b,tcpP)){
     if(!tcpP.getFlag(TcpPacketFlags::rst)){
     sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
-      if(sendPacket(socket,b.rP.first,sPacket) != -1){
-        return Code::BadIncPacket;
-      }
-      else return Code::RawSock;
+      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+      return Status(ls,RemoteStatus::UnexpectedPacket);
       
     }
-    return Code::BadIncPacket;
+    return Status(RemoteStatus::UnexpectedPacket);
   }
+  
+  //TODO: if segment is in window but not in order, add to out of order queue and stop processing
   
   if(tcpP.getFlag(TcpPacketFlags::rst)){
   
       //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(tcpP.getSeqNum() != b.rNxt){
+      if(seqNum != b.rNxt){
       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
-        if(sendPacket(socket,b.rP.first,sPacket) != -1){
-          return Code::BadIncPacket;
-        }
-        else return Code::RawSock;
-        
+        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+        return Status(ls,RemoteStatus::MalicPacket);        
       }
       
       removeConn(b);
-      return Code::ConnRst;
+      notifyApp(b, TcpCode::ConnRst);
+      return Status();
       //TODO : flush retransmission queue
       
   }
   
   if(!checkSecurity(b,ipP)){
-    Code c;
+    LocalStatus c;
     if(tcpP.getFlag(TcpPacketFlags::ack)){
       c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
     }
@@ -519,28 +517,20 @@ Code EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
     }
     
     removeConn(b);
-    if(c !=
-    return Code::ConnRst;
+    notifyApp(b,TcpCode::ConnRst);
+    return Status(c, RemoteStatus::MalformedPacket);
   }
   
   if(tcpP.getFlag(TcpPacketFlags::syn){
   
-    if(b.passiveOpen){
-      b.currentState = ListenS();
-      return Code::Success;
-    }
-    
     //challenge ack recommended by RFC 5961  
 sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
-    if(sendPacket(socket,b.rP.first,sPacket) != -1){
-      return Code::BadIncPacket;
-    }
-    else return Code::RawSock;
+    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+    return Status(ls, RemoteStatus::MalicPacket);
     
   }
-  
-  
+
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
     uint32_t ackNum = tcpP.getAckNum();
@@ -549,29 +539,59 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
     if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
        sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
-      if(sendPacket(socket,b.rP.first,sPacket) != -1){
-        return Code::BadIncPacket;
-      }
-      else return Code::RawSock;
-      
+      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+      return Status(ls, RemoteStatus::MalicPacket);
     }
       
-    if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
-      b.currentState = EstabS();
-      b.sWnd = tcpP.getWindow();
-      b.sWl1 = tcp.getSeqNum();
-      b.sWl2 = ackNum();
-      //TODO trigger further processing event
-      return Code::Success;
+    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
+    
+      if(ackNum > b.sUna){
+        b.sUna = ackNum;
+        //TODO: remove acked segments from retransmission queue
+        //respond ok to buffers for app
+      }
+      
+      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
+        b.sWnd = tcpP.getWindow();
+        b.sWl1 = seqNum;
+        b.sWl2 = ackNum;
+      }
+            
+      return Status();
     }
     else{
-      Code c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-      if(c != Code::Success) return c;
-      else return Code::BadIncPacket;
+      if(ackNum > b.sNxt){
+            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
+        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+        return Status(ls, RemoteStatus::UnexpectedPacket);
+      }
+      return Status(RemoteStatus::UnexpectedPacket);
     }
+    
   }
-  else return Code::BadIncPacket;
+  else return Status(RemoteStatus::UnexpectedPacket);
+  
+  if(tcpP.getFlag(TcpPacketFlags::urg)){
+    uint32_t segUp = tcpP.getUrg();
+    if(b.rUp < segUp) b.rUp = segUp;
+    if((b.rUp >= b.appNewData) && !urgentSignaled) notifyApp(TcpCode::UrgentData);
+  }
+  
+  uint8_t dataBytesRead = 0;
+  seqNum + dataBytesRead < 
+  while((recBuffer.size() < recBufferMax) && (
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   
   if(tcpP.getFlag(TcpPacketFlags::fin)){
     

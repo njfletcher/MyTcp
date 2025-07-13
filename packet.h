@@ -77,6 +77,7 @@ class TcpPacket{
     uint32_t getSeqNum();
     uint32_t getAckNum();
     uint16_t getWindow();
+    uint16_t getUrg();
     
     uint32_t getSegSize();
     std::vector<uint8_t> payload;

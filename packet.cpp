@@ -244,6 +244,7 @@ uint16_t TcpPacket::getSrcPort(){return sourcePort;}
 uint32_t TcpPacket::getSeqNum(){return seqNum;}
 uint32_t TcpPacket::getAckNum(){return ackNum;}
 uint16_t TcpPacket::getWindow(){return window;}
+uint16_t TcpPacket::getUrg(){return urgPointer;}
 
 void TcpPacket::print(){
 
@@ -376,6 +377,7 @@ RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   }
   
   int dataBytesRemaining = numBytes - offsetConv;
+  
   for(int i =0; i < dataBytesRemaining; i++){
     payload.push_back(currPointer[i]);
   }
