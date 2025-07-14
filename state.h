@@ -51,7 +51,8 @@ enum class TcpCode{
   ConnRst = -23,
   ConnRef = -24,
   ConnClosing = -25,
-  UrgentData = -26
+  UrgentData = -26,
+  PushData = -27
 };
 
 class Tcb{
@@ -87,6 +88,8 @@ class Tcb{
     //pointer to place in buffer where app has not consumed yet.
     uint16_t appNewData;
     bool urgentSignaled;
+    
+    unordered_map<uint32_t, IpPacket> waitingPackets;
     
     std::queue<uint8_t> recBuffer;
     std::queue<uint8_t> sendBuffer;

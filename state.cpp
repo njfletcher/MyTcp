@@ -488,7 +488,12 @@ Code EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
     return Status(RemoteStatus::UnexpectedPacket);
   }
   
-  //TODO: if segment is in window but not in order, add to out of order queue and stop processing
+  //SHLD 31 packet in window but not the expected one should be held for later processing.
+  if(seqNum > b.rNxt){
+    b.waitingPackets[seqNum] = ipP;
+    return Status();
+  }
+  
   
   if(tcpP.getFlag(TcpPacketFlags::rst)){
   
@@ -578,37 +583,46 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
     if((b.rUp >= b.appNewData) && !urgentSignaled) notifyApp(TcpCode::UrgentData);
   }
   
-  uint8_t dataBytesRead = 0;
-  seqNum + dataBytesRead < 
-  while((recBuffer.size() < recBufferMax) && (
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  if(tcpP.getFlag(TcpPacketFlags::fin)){
-    
-    b.rNxt = tcpP.getSeqNum() + 1; //advancing rNxt over fin
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    if(sendPacket(socket,b.rP.first,sPacket) != -1){
-      b.currentState = CloseWaitS();
-      //TODO: return conn closing to any pending recs and push any waiting segments.
-      return Code::ConnClosing;
-    }
-    else return Code::RawSock;
-    
-    
+  //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
+  //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
+  //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
+  size_t beginUnProc = b.rNxt - seqNum;
+  size_t index = beginUnProc;
+  while((recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
+    recBuffer.push(tcpP.payload[index]);
+    index++;
+  }
+
+  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
+    notifyApp(b, TcpCode::PushData);
   }
   
-  return Code::Success;
+  uint32_t oldRightEdge = b.rNxt + b.rWnd;
+  b.rNxt = b.rNxt + (index - beginUnProc);
+  uint32_t leastWindow = oldRightEdge - b.rNxt;
+  uint32_t bufferAvail = recBufferMax - recBuffer.size();
+  if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
+  else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
+  
+  //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
+  if(b.rWnd > 0){
+    if(tcpP.getFlag(TcpPacketFlags::fin)){
+    
+      b.rNxt = b.rNxt + 1;
+      b.currentState = CloseWaitS();
+      //TODO: return conn closing to any pending recs and push any waiting segments.
+      notifyApp(b,TcpCode::ConnClosing);
+      
+    }
+  }
+ 
+  //TODO: piggy back ack with outgoing segment. 
+    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  return Status(ls, RemoteStatus::Success); 
+  
+
 }
 
 
