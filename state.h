@@ -45,6 +45,7 @@ class Status{
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
 enum class TcpCode{
+  Ok = 0,
   ActiveUnspec = -20,
   Resources = -21,
   DupConn = -22,
@@ -142,31 +143,37 @@ class SynRecS : State{
 class EstabS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class FinWait1S : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class FinWait2S : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class CloseWaitS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class ClosingS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class LastAckS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 class TimeWaitS : State{
