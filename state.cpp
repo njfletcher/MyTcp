@@ -15,6 +15,7 @@
 #include <utility>
 #include <poll.h>
 #include <climits>
+#include <functional>
 
 using namespace std;
 
@@ -352,14 +353,12 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
 }
 
-Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status checkSequenceNum(int socket, Tcb& b, TcpPacket& tcpP){
 
+  TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  TcpPacket sPacket;
   
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
   if(!verifyRecWindow(b,tcpP)){
     if(!tcpP.getFlag(TcpPacketFlags::rst)){
     sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
@@ -371,29 +370,87 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
     return Status(RemoteStatus::UnexpectedPacket);
   }
   
+  return Status();
+}
+
+Status checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  
   if(tcpP.getFlag(TcpPacketFlags::rst)){
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(tcpP.getSeqNum() != b.rNxt){
+      //check for RFC 5961S3 rst attack mitigation. 
+      if(!windowChecked && !verifyRecWindow(b,tcpP)) return Status(RemoteStatus::UnexpectedPacket);
+      if(seqNum != b.rNxt){
       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
         LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::MalicPacket);
-        
+        return Status(ls,RemoteStatus::MalicPacket);        
       }
       
-      if(b.passiveOpen){
-        b.currentState = ListenS();
-        return Status();
-      }
-      else{
-        removeConn(b);
-        notifyApp(b, TcpCode::ConnRef);
-        return Status();
-      }
-      //TODO : flush retransmission queue
-      
+      return nextLogic(socket,b,tcpP);
   }
+  
+  return Status();
+
+}
+
+Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  
+  if(!checkSecurity(b,ipP)){
+    LocalStatus c;
+    if(tcpP.getFlag(TcpPacketFlags::ack)){
+      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
+    }
+    else{
+      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
+    }
+    
+    return nextLogic(socket,b,tcpP);
+  }
+  
+  return Status();
+
+}
+
+
+Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
+
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  TcpPacket sPacket;
+  IpPacket& ipP = se.packet;
+  TcpPacket& tcpP = ipP.getTcpPacket();
+  Status s;
+  
+  s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  
+  function<Status(int,Tcb&,TcpPacket&)> goodResetLogic = [](int, Tcb&, TcpPacket&){
+    if(b.passiveOpen){
+    b.currentState = ListenS();
+    return Status();
+    }
+    else{
+      removeConn(b);
+      notifyApp(b, TcpCode::ConnRef);
+      return Status();
+    }
+    //TODO : flush retransmission queue
+  };
+  
+  s = checkReset(socket,b,tcpP,true,goodResetLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+
+      
+  
   
   if(!checkSecurity(b,ipP)){
     LocalStatus c;
@@ -470,7 +527,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
   return Status();
 }
 
-Code EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -479,16 +536,9 @@ Code EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+  
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
@@ -630,7 +680,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 }
 
-Code FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -639,16 +689,9 @@ Code FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
@@ -799,7 +842,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 }
 
-Code FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -808,16 +851,9 @@ Code FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
@@ -965,7 +1001,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 }
 
-Code CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -974,16 +1010,9 @@ Code CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
@@ -1079,7 +1108,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
   return Status(RemoteStatus::UnexpectedPacket);
 }
 
-Code ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -1088,16 +1117,9 @@ Code ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
@@ -1198,7 +1220,7 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
   return Status(RemoteStatus::UnexpectedPacket);
 }
 
-Code LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
+Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -1207,16 +1229,9 @@ Code LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
   uint32_t seqNum = tcpP.getSeqNum();
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
-  if(!verifyRecWindow(b,tcpP)){
-    if(!tcpP.getFlag(TcpPacketFlags::rst)){
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::UnexpectedPacket);
-      
-    }
-    return Status(RemoteStatus::UnexpectedPacket);
-  }
+  
+  Status s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //SHLD 31 packet in window but not the expected one should be held for later processing.
   if(seqNum > b.rNxt){
