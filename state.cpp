@@ -412,27 +412,66 @@ Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, 
       c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
     }
     
-    return nextLogic(socket,b,tcpP);
+    if(c != LocalStatus::Success) return Status(c,RemoteStatus::MalformedPacket);
+    
+    Status s = nextLogic(socket,b,tcpP);
+    return Status(s.ls,RemoteStatus::MalformedPacket);
   }
   
   return Status();
 
 }
 
+Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  
+  if(tcpP.getFlag(TcpPacketFlags::ack){
+  
+    uint32_t ackNum = tcpP.getAckNum();
+  
+    //RFC 5661S5 injection attack check
+    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
+       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+      return Status(ls,RemoteStatus::MalicPacket);
+      
+    }
+    
+    return nextLogic(socket,b,tcpP); 
+    
+  }
+  else return Status(RemoteStatus::UnexpectedPacket);
+  
+
+}
+
+Status checkUrg(Tcb&b, TcpPacket& tcpP){
+
+  if(tcpP.getFlag(TcpPacketFlags::urg)){
+    uint32_t segUp = tcpP.getUrg();
+    if(b.rUp < segUp) b.rUp = segUp;
+    if((b.rUp >= b.appNewData) && !b.urgentSignaled){
+      notifyApp(TcpCode::UrgentData);
+      b.urgentSignaled = true;
+    }
+  }
+  return Status();
+}
+
 
 Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
   Status s;
   
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-  
-  
+    
   function<Status(int,Tcb&,TcpPacket&)> goodResetLogic = [](int, Tcb&, TcpPacket&){
     if(b.passiveOpen){
     b.currentState = ListenS();
@@ -448,20 +487,11 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkReset(socket,b,tcpP,true,goodResetLogic);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
       
-  
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
+  function<Status(int, Tcb&, TcpPacket&)> secFailLogic = []{return Status();};
+  s = checkSec(socket,b,tcpP,secFailLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+
   
   if(tcpP.getFlag(TcpPacketFlags::syn){
   
@@ -478,20 +508,8 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
     
   }
   
-  
-  if(tcpP.getFlag(TcpPacketFlags::ack){
-  
+  function<Status(int,Tcb&,TcpPacket&)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP){
     uint32_t ackNum = tcpP.getAckNum();
-  
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls,RemoteStatus::MalicPacket);
-      
-    }
-      
     if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
       b.currentState = EstabS();
       b.sWnd = tcpP.getWindow();
@@ -502,12 +520,13 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
       return Status();
     }
     else{
-      LocalStatus c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
+      LocalStatus c = sendReset(socket, b.lP, b.rP, 0, false, ackNum);
       return Status(c,RemoteStatus::UnexpectedPacket);
     }
-    
-  }
-  else return Status(RemoteStatus::UnexpectedPacket);
+  };
+  s = checkAck(socket,b,tcpP,goodAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+      
   
   if(tcpP.getFlag(TcpPacketFlags::fin)){
     
@@ -629,14 +648,8 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
   }
   else return Status(RemoteStatus::UnexpectedPacket);
   
-  if(tcpP.getFlag(TcpPacketFlags::urg)){
-    uint32_t segUp = tcpP.getUrg();
-    if(b.rUp < segUp) b.rUp = segUp;
-    if((b.rUp >= b.appNewData) && !b.urgentSignaled){
-      notifyApp(TcpCode::UrgentData);
-      b.urgentSignaled = true;
-    }
-  }
+  s = checkUrg(b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
   //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
