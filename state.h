@@ -28,10 +28,10 @@ enum class LocalStatus{
 //status of the tcp being fuzzed: did it fail and how so?
 enum class RemoteStatus{
   Success = 0,
-  UnexpectedPacket = 1,
-  MalformedPacket = 2,
+  UnexpectedPacket = 1, // packet appears to be incorrect based on where it is in the tcp state/packet sequence.
+  MalformedPacket = 2, // packet appears to be incorrect based on data within the packet on its own.
   SuspectedCrash = 3,
-  MalicPacket = 4
+  MalicPacket = 4 // a packet that was sent from the fuzzee could be interpreted as malicious. This could indicate their handling of rfc 5961 is incorrect.
 };
 
 class Status{

@@ -297,7 +297,7 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     
   uint32_t seqN = tcpP.getSeqNum();
   if(tcpP.getFlag(TcpPacketFlags::rst)){
-    //RFC 5961, preventing blind reset attack. TODO: research if anything else is needed.
+    //RFC 5961, preventing blind reset attack. 
     if(seqN != b.rNxt) return Status(RemoteStatus::MalicPacket);
     
     if(ackFlag){
@@ -306,7 +306,6 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
       return Status();
     }
     else return Status(RemoteStatus::MalformedPacket); 
-    
   }
   
   if(!checkSecurity(b,ipP)){
@@ -380,32 +379,49 @@ Status checkSequenceNum(int socket, Tcb& b, TcpPacket& tcpP){
   return Status();
 }
 
-Status checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, function<LocalStatus(int, Tcb&, TcpPacket&)> nextLogic){
+Status checkSaveForLater(Tcb&b, IpPacket& ipP){
+
+  uint32_t seqNum = tcpP.getSeqNum();
+  //SHLD 31 packet in window but not the expected one should be held for later processing.
+  if(seqNum > b.rNxt){
+    b.waitingPackets[seqNum] = ipP;
+    return Status();
+  }
+
+}
+
+Status checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
 
   if(tcpP.getFlag(TcpPacketFlags::rst)){
   
       //check for RFC 5961S3 rst attack mitigation. 
       if(!windowChecked && !verifyRecWindow(b,tcpP)) return Status(RemoteStatus::UnexpectedPacket);
       
-      if(seqNum != b.rNxt){
-        
+      if(seqNum != b.rNxt){  
         LocalStatus ls = sendChallengeAck(socket,b);
         return Status(ls,RemoteStatus::MalicPacket);        
       }
       
-      LocalStatus ls = nextLogic(socket,b,tcpP);
-      return Status(ls);
+      return nextLogic(socket,b,tcpP);
   }
   
   return Status();
 
 }
 
-Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<LocalStatus(int, Tcb&, TcpPacket&)> nextLogic){
+Status remConnFlushAll(int socket, Tcb& b, TcpPacket& tcpP){
+  removeConn(b);
+  notifyApp(b, TcpCode::ConnRst);
+  return Status();
+  //TODO: flush segment queues and respond reset to outstanding receives and sends.
 
-  TcpPacket sPacket;
-  vector<TcpOption> options;
-  vector<uint8_t> data;
+}
+Status remConnOnly(int socket, Tcb& b, TcpPacket& tcpP){
+  removeConn(b);
+  return Status();
+}
+
+Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
   
   if(!checkSecurity(b,ipP)){
     LocalStatus c;
@@ -418,15 +434,28 @@ Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<LocalStatus(int, T
     
     if(c != LocalStatus::Success) return Status(c,RemoteStatus::MalformedPacket);
     
-    LocalStatus ls = nextLogic(socket,b,tcpP);
-    return Status(ls,RemoteStatus::MalformedPacket);
+    Status s = nextLogic(socket,b,tcpP);
+    return Status(s.ls,RemoteStatus::MalformedPacket);
   }
   
   return Status();
 
 }
 
-Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<LocalStatus(int, Tcb&, TcpPacket&)> nextLogic){
+Status checkSyn(int socket, Tcb& b, TcpPacket& tcpP){
+
+  if(tcpP.getFlag(TcpPacketFlags::syn){
+  
+    //challenge ack recommended by RFC 5961  
+    LocalStatus ls = sendChallengeAck(socket, b);
+    return Status(ls, RemoteStatus::MalicPacket);
+    
+  }
+  return Status();
+  
+}
+
+Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
   
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -440,8 +469,7 @@ Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<LocalStatus(int, T
       
     }
     
-    LocalStatus ls = nextLogic(socket,b,tcpP); 
-    return Status(ls);
+    return nextLogic(socket,b,tcpP); 
     
   }
   else return Status(RemoteStatus::UnexpectedPacket);
@@ -462,34 +490,28 @@ Status checkUrg(Tcb&b, TcpPacket& tcpP){
   return Status();
 }
 
-Status remConnFlushAll(int socket, Tcb& b, TcpPacket& tcpP){
 
-  removeConn(b);
-  notifyApp(b, TcpCode::ConnRst);
-  return Status();
-  //TODO : flush segment queues
-  //TODO : respond reset to outstanding receives and sends
-}
-
-
-Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
-
+Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
+ 
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
   Status s;
   
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
     
-  function<LocalStatus(int,Tcb&,TcpPacket&)> goodResetLogic = [](int, Tcb&, TcpPacket&){
+  function<Status(int,Tcb&,TcpPacket&)> goodResetLogic = [](int, Tcb&, TcpPacket&){
     if(b.passiveOpen){
       b.currentState = ListenS();
-      return LocalStatus::Success;
+      return Status();
     }
     else{
       removeConn(b);
       notifyApp(b, TcpCode::ConnRef);
-      return LocalStatus::Success;
+      return Status();
     }
     //TODO : flush retransmission queue
   };
@@ -501,17 +523,15 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkSec(socket,b,tcpP,secFailLogic);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
-  
   if(tcpP.getFlag(TcpPacketFlags::syn){
   
     if(b.passiveOpen){
       b.currentState = ListenS();
       return Status();
     }
-    
     //challenge ack recommended by RFC 5961  
     LocalStatus ls = sendChallengeAck(socket,b);
-    return Status(ls, RemoteStatus::UnexpectedPacket);
+    return Status(ls, RemoteStatus::MalicPacket);
     
   }
   
@@ -562,27 +582,17 @@ Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
-
-  s = checkReset(socket,b,tcpP,true,goodResetWithFlush);
+  s = checkSaveForLater(b,ipP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  s = checkSec(socket,b,tcpP,badSecurityRemConn);
+  s = checkReset(socket,b,tcpP,true,remConnFlushAll);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::syn){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   function<Status(int,Tcb&,TcpPacket&)> ackLogic = [](int socket, Tcb& b, TcpPacket& tcpP){
 
@@ -659,64 +669,24 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t seqNum = tcpP.getSeqNum();
+  Status s;
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
 
-  Status s = checkSequenceNum(socket,b,tcpP);
+  s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(seqNum != b.rNxt){
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls,RemoteStatus::MalicPacket);        
-      }
-      
-      removeConn(b);
-      notifyApp(b, TcpCode::ConnRst);
-      return Status();
-      //TODO : flush retransmission queue
-      
-  }
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    
-    removeConn(b);
-    notifyApp(b,TcpCode::ConnRst);
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
-  
-  if(tcpP.getFlag(TcpPacketFlags::syn){
-  
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -821,64 +791,24 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t seqNum = tcpP.getSeqNum();
+  Status s;  
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
 
-  Status s = checkSequenceNum(socket,b,tcpP);
+  s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(seqNum != b.rNxt){
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls,RemoteStatus::MalicPacket);        
-      }
-      
-      removeConn(b);
-      notifyApp(b, TcpCode::ConnRst);
-      return Status();
-      //TODO : flush retransmission queue
-      
-  }
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    
-    removeConn(b);
-    notifyApp(b,TcpCode::ConnRst);
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
-  
-  if(tcpP.getFlag(TcpPacketFlags::syn){
-  
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -980,64 +910,24 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 Status CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t seqNum = tcpP.getSeqNum();
+  Status s;
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
 
-  Status s = checkSequenceNum(socket,b,tcpP);
+  s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(seqNum != b.rNxt){
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls,RemoteStatus::MalicPacket);        
-      }
-      
-      removeConn(b);
-      notifyApp(b, TcpCode::ConnRst);
-      return Status();
-      //TODO : flush retransmission queue
-      
-  }
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    
-    removeConn(b);
-    notifyApp(b,TcpCode::ConnRst);
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
-  
-  if(tcpP.getFlag(TcpPacketFlags::syn){
-  
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -1087,61 +977,24 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 Status ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t seqNum = tcpP.getSeqNum();
+  Status s;
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
 
-  Status s = checkSequenceNum(socket,b,tcpP);
+  s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnOnly);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(seqNum != b.rNxt){
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls,RemoteStatus::MalicPacket);        
-      }
-      
-      removeConn(b);
-      return Status();
-  }
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    
-    removeConn(b);
-    notifyApp(b,TcpCode::ConnRst);
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
-  
-  if(tcpP.getFlag(TcpPacketFlags::syn){
-  
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -1199,61 +1052,24 @@ sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.se
 
 Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  vector<TcpOption> options;
-  vector<uint8_t> data;
-  TcpPacket sPacket;
-  
-  uint32_t seqNum = tcpP.getSeqNum();
+  Status s;
   IpPacket& ipP = se.packet;
   TcpPacket& tcpP = ipP.getTcpPacket();
   
-  Status s = checkSequenceNum(socket,b,tcpP);
+  s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //SHLD 31 packet in window but not the expected one should be held for later processing.
-  if(seqNum > b.rNxt){
-    b.waitingPackets[seqNum] = ipP;
-    return Status();
-  }
+  s = checkSaveForLater(b,ipP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnOnly);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::rst)){
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-      //check for RFC 5961S3 rst attack mitigation. Step 1 already handled above so seq is assumed to at least be in window.
-      if(seqNum != b.rNxt){
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls,RemoteStatus::MalicPacket);        
-      }
-      
-      removeConn(b);
-      return Status();
-  }
-  
-  if(!checkSecurity(b,ipP)){
-    LocalStatus c;
-    if(tcpP.getFlag(TcpPacketFlags::ack)){
-      c = sendReset(socket, b.lP, b.rP, 0, false, tcpP.getAckNum());
-    }
-    else{
-      c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
-    }
-    
-    removeConn(b);
-    notifyApp(b,TcpCode::ConnRst);
-    return Status(c, RemoteStatus::MalformedPacket);
-  }
-  
-  if(tcpP.getFlag(TcpPacketFlags::syn){
-  
-    //challenge ack recommended by RFC 5961  
-sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    return Status(ls, RemoteStatus::MalicPacket);
-    
-  }
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -1550,13 +1366,14 @@ checks details of the packet and gives it to correct connection, or sends reset 
 to a valid connection
 */
 
-Code multiplexIncoming(int socket){
+Status multiplexIncoming(int socket){
 
   IpPacket retPacket;
   SegmentEv ev;
   ev.packet = retPacket;
   
-  if(recPacket(socket, retPacket) != -1){
+  Status s = retPacket(socket,retPacket);
+  if(s.ls == LocalStatus::Success && s.rs == RemoteStatus::Success){
     TcpPacket& p = retPacket.getTcpPacket();
 
     uint32_t sourceAddress = retPacket.getDestAddr();
@@ -1565,7 +1382,7 @@ Code multiplexIncoming(int socket){
     uint16_t destPort = p.getSrcPort();
     
     //drop the packet, unspec values are invalid
-    if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return Code::BadIncPacket;
+    if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return Status(RemoteStatus::MalformedPacket);
     
     LocalPair lP(sourceAddress, sourcePort);
     RemotePair rP(destAddress, destPort);
@@ -1581,18 +1398,19 @@ Code multiplexIncoming(int socket){
     }
     
     //if we've gotten to this point no conn exists: fictional closed state
+    LocalStatus ls;
     if(!p.getFlag(TcpPacketFlags::rst)){
       if(p.getFlag(TcpPacketFlags::ack)){
-        return sendReset(socket, lP, rP, 0, false, p.getAckNum());
+        ls = sendReset(socket, lP, rP, 0, false, p.getAckNum());
       }
       else{
-        return sendReset(socket, lP, rP, p.getSeqNum() + p.getSegSize(),true,0);
+        ls = sendReset(socket, lP, rP, p.getSeqNum() + p.getSegSize(),true,0);
       }
     }
-    else return Code::BadIncPacket;
+    return Status(ls, RemoteStatus::UnexpectedPacket);
     
   }
-  else return Code::RawSend;
+  else s;
   
 }
 
@@ -1601,7 +1419,7 @@ entryTcp-
 Starts the tcp implementation, equivalent to a tcp module being loaded.
 in the future bind this to all available source addresses and poll all of them, not just one address
 */
-Code entryTcp(char* sourceAddr){
+Status entryTcp(char* sourceAddr){
 
   uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
   int socket =  bindSocket(sourceAddress);
@@ -1621,34 +1439,9 @@ Code entryTcp(char* sourceAddr){
   
   }
   
-  return Code::Success;
+  return Status();
 }
 
-
-int synReceived(Tcb& b, TcpPacket& p, int socket){
-
-  uint32_t segLen = p.getSegSize();
-  if(!verifyRecWindow(b.rWnd, b.rNxt, p.seqNum, segLen)){
-    return -1;
-  }
-  b.rNxt = p.getSeqNum() + segLen;
-    
-  if(p.getFlag(TcpPacketFlags::ack)){
-    if(verifyAck(b.sUna, b.sNxt, p.getAckNum()){
-      b.sUna = p.getAckNum();
-    }
-    else{
-      // either error or retransmit 
-      return -1;
-    }
-    b.currentState = established;
-    
-  }
-  else{
-    //error or possible reset
-  }
-    
-}
 
 /*
   all state logic functions are functions that are called when 
