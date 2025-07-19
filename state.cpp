@@ -477,6 +477,35 @@ Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, 
 
 }
 
+Status establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP){
+
+    uint32_t ackNum = tcpP.getAckNum();
+    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
+    
+      if(ackNum > b.sUna){
+        b.sUna = ackNum;
+        //TODO: remove acked segments from retransmission queue
+        //respond ok to buffers for app
+      }
+      
+      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
+        b.sWnd = tcpP.getWindow();
+        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
+        b.sWl1 = seqNum;
+        b.sWl2 = ackNum;
+      }
+      return Status();
+            
+    }
+    else{
+      if(ackNum > b.sNxt){
+            sendChallengeAck(socket,b,tcpP);
+      }
+      return Status(RemoteStatus::UnexpectedPacket);
+    }    
+    
+}
+
 Status checkUrg(Tcb&b, TcpPacket& tcpP){
 
   if(tcpP.getFlag(TcpPacketFlags::urg)){
@@ -485,6 +514,47 @@ Status checkUrg(Tcb&b, TcpPacket& tcpP){
     if((b.rUp >= b.appNewData) && !b.urgentSignaled){
       notifyApp(TcpCode::UrgentData);
       b.urgentSignaled = true;
+    }
+  }
+  return Status();
+}
+
+Status processData(int socket, Tcb&b, TcpPacket& tcpP){
+
+  uint32_t seqNum = tcpP.getSeqNum();
+  //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
+  //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
+  //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
+  size_t beginUnProc = b.rNxt - seqNum;
+  size_t index = beginUnProc;
+  while((b.recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
+    b.recBuffer.push(tcpP.payload[index]);
+    index++;
+  }
+
+  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
+    notifyApp(b, TcpCode::PushData);
+  }
+  
+  uint32_t oldRightEdge = b.rNxt + b.rWnd;
+  b.rNxt = b.rNxt + (index - beginUnProc);
+  uint32_t leastWindow = oldRightEdge - b.rNxt;
+  uint32_t bufferAvail = recBufferMax - recBuffer.size();
+  if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
+  else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
+
+  return Status();
+}
+
+Status checkFin(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
+  
+  //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
+  if(b.rWnd > 0){
+    if(tcpP.getFlag(TcpPacketFlags::fin)){
+      b.rNxt = b.rNxt + 1;
+      //TODO: return conn closing to any pending recs and push any waiting segments.
+      notifyApp(b,TcpCode::ConnClosing);
+      return nextLogic(socket,b,tcpP);
     }
   }
   return Status();
@@ -535,7 +605,7 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
     
   }
   
-  function<LocalStatus(int,Tcb&,TcpPacket&)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP){
+  function<Status(int,Tcb&,TcpPacket&)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP){
     uint32_t ackNum = tcpP.getAckNum();
     if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
       b.currentState = EstabS();
@@ -544,7 +614,7 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
       b.sWl1 = tcp.getSeqNum();
       b.sWl2 = ackNum();
       //TODO trigger further processing event
-      return LocalStatus::Success;
+      return Status();
     }
     else{
       LocalStatus c = sendReset(socket, b.lP, b.rP, 0, false, ackNum);
@@ -552,25 +622,10 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
     }
   };
   s = checkAck(socket,b,tcpP,goodAckLogic);
-  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-      
+  return s;
   
-  if(tcpP.getFlag(TcpPacketFlags::fin)){
-    
-    b.rNxt = tcpP.getSeqNum() + 1; //advancing rNxt over fin
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-    LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-    if(ls == LocalStatus::Success){
-      b.currentState = CloseWaitS();
-      //TODO: return conn closing to any pending recs and push any waiting segments.
-      notifyApp(b,TcpCode::ConnClosing);
-    }
-    return Status(ls);
-    
-  }
+  //anything past this that needs processing will have been handed off to synchronized state
   
-  return Status();
 }
 
 Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
@@ -594,77 +649,25 @@ Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
 
-  function<Status(int,Tcb&,TcpPacket&)> ackLogic = [](int socket, Tcb& b, TcpPacket& tcpP){
-
-    uint32_t ackNum = tcpP.getAckNum();
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-            
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sendChallengeAck(socket,b,tcpP);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }    
-  }
-
+  s = checkAck(socket,b,tcpP,establishedAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   s = checkUrg(b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
-  //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
-  //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
-  size_t beginUnProc = b.rNxt - seqNum;
-  size_t index = beginUnProc;
-  while((recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
-    recBuffer.push(tcpP.payload[index]);
-    index++;
-  }
-
-  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
-    notifyApp(b, TcpCode::PushData);
-  }
+  s = processData(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  uint32_t oldRightEdge = b.rNxt + b.rWnd;
-  b.rNxt = b.rNxt + (index - beginUnProc);
-  uint32_t leastWindow = oldRightEdge - b.rNxt;
-  uint32_t bufferAvail = recBufferMax - recBuffer.size();
-  if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
-  else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
-  
-  //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
-  if(b.rWnd > 0){
-    if(tcpP.getFlag(TcpPacketFlags::fin)){
-    
-      b.rNxt = b.rNxt + 1;
-      b.currentState = CloseWaitS();
-      //TODO: return conn closing to any pending recs and push any waiting segments.
-      notifyApp(b,TcpCode::ConnClosing);
-      
-    }
+  function<Status(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
+    b.currentState = CloseWaitS();
+    return Status();
   }
- 
-  //TODO: piggy back ack with outgoing segment. 
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  s = checkFin(socket,b,tcpP,goodFinLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+        
+  LocalStatus ls = sendChallengeAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
-
 }
 
 Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
@@ -687,106 +690,35 @@ Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
-  if(tcpP.getFlag(TcpPacketFlags::ack){
   
-    uint32_t ackNum = tcpP.getAckNum();
+  s = checkAck(socket,b,tcpP,establishedAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls, RemoteStatus::MalicPacket);
-    }
-      
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-      
+  // if we've reached this part we know ack is set and acceptable
+  if(tcpP.getAckNum() == b.sNxt){
       //fin segment fully acknowledged
-      if(ackNum == b.sNxt){
-        b.currentState = FinWait2S();
-        //TODO: futher processing in fin wait 2s
-        return Status();
-      }
-      
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::UnexpectedPacket);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }
-    
-  }
-  else return Status(RemoteStatus::UnexpectedPacket);
-  
-  if(tcpP.getFlag(TcpPacketFlags::urg)){
-    uint32_t segUp = tcpP.getUrg();
-    if(b.rUp < segUp) b.rUp = segUp;
-    if((b.rUp >= b.appNewData) && !b.urgentSignaled){
-      notifyApp(TcpCode::UrgentData);
-      b.urgentSignaled = true;
-      
-    }
+      b.currentState = FinWait2S();
+      //TODO: futher processing in fin wait 2s
+      return Status();
   }
   
-  //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
-  //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
-  //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
-  size_t beginUnProc = b.rNxt - seqNum;
-  size_t index = beginUnProc;
-  while((recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
-    recBuffer.push(tcpP.payload[index]);
-    index++;
-  }
-
-  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
-    notifyApp(b, TcpCode::PushData);
-  }
+  s = checkUrg(b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  uint32_t oldRightEdge = b.rNxt + b.rWnd;
-  b.rNxt = b.rNxt + (index - beginUnProc);
-  uint32_t leastWindow = oldRightEdge - b.rNxt;
-  uint32_t bufferAvail = recBufferMax - recBuffer.size();
-  if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
-  else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
+  s = processData(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
-  if(b.rWnd > 0){
-    if(tcpP.getFlag(TcpPacketFlags::fin)){
-    
-      b.rNxt = b.rNxt + 1;
-      b.currentState = ClosingS();
-      //TODO: return conn closing to any pending recs and push any waiting segments.
-      notifyApp(b,TcpCode::ConnClosing);
-      //TODO: start time wait timer and end other timers.
-      
-    }
+  function<Status(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
+    //if fin were acked, would have not reached this part. So fin is not acked yet.
+    b.currentState = ClosingS();
+    return Status();
   }
- 
-  //TODO: piggy back ack with outgoing segment. 
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  s = checkFin(socket,b,tcpP,goodFinLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+        
+  LocalStatus ls = sendChallengeAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
-
 }
 
 Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
@@ -809,100 +741,29 @@ Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
-  if(tcpP.getFlag(TcpPacketFlags::ack){
   
-    uint32_t ackNum = tcpP.getAckNum();
+  s = checkAck(socket,b,tcpP,establishedAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls, RemoteStatus::MalicPacket);
-    }
-      
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-      
-      if(b.retransmit.size() < 1){
-        notifyApp(b,TcpCode::Ok);
-      }
-      
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::UnexpectedPacket);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }
-    
-  }
-  else return Status(RemoteStatus::UnexpectedPacket);
-  
-  if(tcpP.getFlag(TcpPacketFlags::urg)){
-    uint32_t segUp = tcpP.getUrg();
-    if(b.rUp < segUp) b.rUp = segUp;
-    if((b.rUp >= b.appNewData) && !b.urgentSignaled){
-      notifyApp(TcpCode::UrgentData);
-      b.urgentSignaled = true;
-      
-    }
+  if(b.retransmit.size() < 1){
+      notifyApp(b,TcpCode::Ok);
   }
   
-  //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
-  //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
-  //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
-  size_t beginUnProc = b.rNxt - seqNum;
-  size_t index = beginUnProc;
-  while((recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
-    recBuffer.push(tcpP.payload[index]);
-    index++;
-  }
-
-  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
-    notifyApp(b, TcpCode::PushData);
-  }
+  s = checkUrg(b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  uint32_t oldRightEdge = b.rNxt + b.rWnd;
-  b.rNxt = b.rNxt + (index - beginUnProc);
-  uint32_t leastWindow = oldRightEdge - b.rNxt;
-  uint32_t bufferAvail = recBufferMax - recBuffer.size();
-  if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
-  else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
+  s = processData(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-  //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
-  if(b.rWnd > 0){
-    if(tcpP.getFlag(TcpPacketFlags::fin)){
-    
-      b.rNxt = b.rNxt + 1;
-      b.currentState = TimeWaitS();
-      //TODO: return conn closing to any pending recs and push any waiting segments.
-      notifyApp(b,TcpCode::ConnClosing);
-      //TODO: start time wait timer and end other timers.
-      
-    }
+  function<Status(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
+    //if fin were acked, would have not reached this part. So fin is not acked yet.
+    b.currentState = TimeWaitS();
+    return Status();
   }
- 
-  //TODO: piggy back ack with outgoing segment. 
-    sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  s = checkFin(socket,b,tcpP,goodFinLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+        
+  LocalStatus ls = sendChallengeAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
 
@@ -928,47 +789,9 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
-  if(tcpP.getFlag(TcpPacketFlags::ack){
   
-    uint32_t ackNum = tcpP.getAckNum();
-  
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls, RemoteStatus::MalicPacket);
-    }
-      
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-            
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::UnexpectedPacket);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }
-    
-  }
-  else return Status(RemoteStatus::UnexpectedPacket);
+  s = checkAck(socket,b,tcpP,establishedAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
@@ -995,56 +818,17 @@ Status ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
-  if(tcpP.getFlag(TcpPacketFlags::ack){
   
-    uint32_t ackNum = tcpP.getAckNum();
+  s = checkAck(socket,b,tcpP,establishedAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls, RemoteStatus::MalicPacket);
-    }
-      
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-      
+  // if we've reached this part we know ack is set and acceptable
+  if(tcpP.getAckNum() == b.sNxt){
       //fin segment fully acknowledged
-      if(ackNum == b.sNxt){
-        b.currentState = TimeWaitS();
-      }
-      else{
-        return Status(RemoteStatus::UnexpectedPacket);
-      }
-            
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::UnexpectedPacket);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }
-    
+      b.currentState = TimeWaitS();
+      return Status();
   }
-  else return Status(RemoteStatus::UnexpectedPacket);
-  
+    
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
   return Status(RemoteStatus::UnexpectedPacket);
@@ -1070,53 +854,16 @@ Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
   
   s = checkSyn(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
-
-  if(tcpP.getFlag(TcpPacketFlags::ack){
   
-    uint32_t ackNum = tcpP.getAckNum();
-  
-    //RFC 5661S5 injection attack check
-    if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
-       sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-      return Status(ls, RemoteStatus::MalicPacket);
+  function<Status(int,Tcb&,TcpPacket&)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP){
+    if(tcpP.getAckNum() == b.sNxt){
+      removeConn(b);
+      return Status();
     }
-      
-    if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
-    
-      if(ackNum > b.sUna){
-        b.sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
-      }
-      
-      if((b.sWl1 < seqNum) || ((b.sWl1 == seqNum) && (b.sWl2 <= ackNum))){
-        b.sWnd = tcpP.getWindow();
-        if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-        b.sWl1 = seqNum;
-        b.sWl2 = ackNum;
-      }
-      
-      //fin segment fully acknowledged
-      if(ackNum == b.sNxt){
-        removeConn(b);
-        return Status();
-      }
-            
-    }
-    else{
-      if(ackNum > b.sNxt){
-            sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-        LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
-        return Status(ls, RemoteStatus::UnexpectedPacket);
-      }
-      return Status(RemoteStatus::UnexpectedPacket);
-    }
-    
-  }
-  else return Status(RemoteStatus::UnexpectedPacket);
+    else return Status(RemoteStatus::UnexpectedPacket);
+  };
+  s = checkAck(socket,b,tcpP,goodAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
