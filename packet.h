@@ -5,26 +5,18 @@
 #define ipMinHeaderLen 20
 #define tcpMinHeaderLen 20
 #define ipPacketMaxSize 65535
+#define defaultTcpDataOffset 5
 
 enum class TcpOptionKind{
-
   end = 0,
   noOp = 1,
-  maxSeqSize = 2,
-  windScale = 3,
-  selAckPerm = 4,
-  selAck = 5,
-  timestampEcho = 8,
-  userTimeout = 28,
-  tcpAuth = 29,
-  multipath = 30
-
+  mss = 2
 };
 
 class TcpOption{
   public:
     TcpOption() = default;
-    TcpOption(uint8_t k, uint8_t len, uint8_t hasLen, std::vector<uint8_t> data);
+    TcpOption(uint8_t k, uint8_t len, bool hasLen, std::vector<uint8_t> data);
     RemoteStatus fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
@@ -34,7 +26,7 @@ class TcpOption{
     uint16_t size;
     uint8_t kind;
     uint8_t length;
-    uint8_t hasLength; 
+    bool hasLength; 
     std::vector<uint8_t> data;
 };
 
@@ -89,16 +81,16 @@ class TcpPacket{
     
     //all multi-byte fields are guaranteed to be in host byte order.
   private:
-    uint16_t size;
-    uint16_t sourcePort;
-    uint16_t destPort;
-    uint32_t seqNum;
-    uint32_t ackNum;
-    uint8_t dataOffReserved;
-    uint8_t flags;
-    uint16_t window;
-    uint16_t checksum;
-    uint16_t urgPointer;
+    uint16_t size = 0;
+    uint16_t sourcePort = 0;
+    uint16_t destPort = 0;
+    uint32_t seqNum = 0;
+    uint32_t ackNum = 0;
+    uint8_t dataOffReserved = 0;
+    uint8_t flags = 0;
+    uint16_t window = 0;
+    uint16_t checksum = 0;
+    uint16_t urgPointer = 0;
 };
 
 
@@ -139,14 +131,14 @@ enum class IpOptionType{
 class IpOption{
   public:
     IpOption() = default;
-    IpOption(uint8_t t, uint8_t len, uint8_t hasLen);
+    IpOption(uint8_t t, uint8_t len, bool hasLen);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
     RemoteStatus fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
   private:
     uint8_t type;
     uint8_t length;
-    uint8_t hasLength; 
+    bool hasLength; 
     std::vector<uint8_t> data;
 };
 

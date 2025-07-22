@@ -28,9 +28,10 @@ enum class LocalStatus{
 enum class RemoteStatus{
   Success = 0,
   UnexpectedPacket = 1, // packet appears to be incorrect based on where it is in the tcp state/packet sequence.
-  MalformedPacket = 2, // packet appears to be incorrect based on data within the packet on its own.
+  BadPacketTcp = 2, // packet appears to be incorrect based on data within the packet on its own.Tcp 
   SuspectedCrash = 3,
-  MalicPacket = 4 // a packet that was sent from the fuzzee could be interpreted as malicious. This could indicate their handling of rfc 5961 is incorrect.
+  MalicPacket = 4, // a packet that was sent from the fuzzee could be interpreted as malicious. This could indicate their handling of rfc 5961 is incorrect.
+  BadPacketIp = 5, // packet appears to be incorrect based on data within the packet on its own. IP 
 };
 
 class Status{
@@ -58,10 +59,9 @@ enum class TcpCode{
 class Tcb{
 
   public:
-    Tcb() = default;
     Tcb(LocalPair l, RemotePair r, bool passive);
     
-    int id;
+    int id = 0;
     
     //all multi-byte fields are guaranteed to be in host order.
     LocalPair lP;
@@ -69,29 +69,29 @@ class Tcb{
 
     std::vector<TcpPacket> retransmit;
     
-    uint32_t sUna; // first seq num of data that has not been acknowledged by my peer.
-    uint32_t sNxt; // first seq num of data that has not been sent by me.
-    uint32_t sWnd; // window specified by my peer. how many bytes they can hold in buffer.
-    uint32_t iss; //initial sequence number i chose for my data.
+    uint32_t sUna = 0; // first seq num of data that has not been acknowledged by my peer.
+    uint32_t sNxt = 0; // first seq num of data that has not been sent by me.
+    uint32_t sWnd = 0; // window specified by my peer. how many bytes they can hold in buffer.
+    uint32_t iss = 0; //initial sequence number i chose for my data.
     
-    uint32_t sUp; //start sequence number of urgent data in peer buffer
-    uint32_t sWl1; //sequence number used for last peer window update
-    uint32_t sWl2; //ack number used for last peer window update 
+    uint32_t sUp = 0; //start sequence number of urgent data in peer buffer
+    uint32_t sWl1 = 0; //sequence number used for last peer window update
+    uint32_t sWl2 = 0; //ack number used for last peer window update 
 
 
-    uint32_t rNxt; // first seq num of data I have not received from my peer.
-    uint32_t rWnd; // window advertised by me to my peer. how many bytes i can hold in buffer.
-    uint32_t rUp; //start sequence number of urgent data in my buffer
-    uint32_t irs; // initial sequence number chosen by peer for their data.
+    uint32_t rNxt = 0; // first seq num of data I have not received from my peer.
+    uint32_t rWnd = 0; // window advertised by me to my peer. how many bytes i can hold in buffer.
+    uint32_t rUp = 0; //start sequence number of urgent data in my buffer
+    uint32_t irs = 0; // initial sequence number chosen by peer for their data.
     
-    uint32_t maxSWnd;
+    uint32_t maxSWnd = 0;
     //pointer to place in buffer where app has not consumed yet.
-    uint16_t appNewData;
-    bool urgentSignaled;
+    uint16_t appNewData = 0;
+    bool urgentSignaled = false;
     
     //16 bits to match ip packet 16 bit length field.
-    uint16_t peerMss;
-    uint16_t myMss;
+    uint16_t peerMss = defaultMSS;
+    uint16_t myMss = defaultMSS;
     
     unordered_map<uint32_t, IpPacket> waitingPackets;
     
@@ -100,7 +100,7 @@ class Tcb{
     
     State& currentState;
     
-    bool passiveOpen;
+    bool passiveOpen = false;
   
 };
 

@@ -66,7 +66,7 @@ Status recPacket(int sock, IpPacket& packet){
   }   
 	
   RemoteStatus rs = packet.fromBuffer(ipBuffer, numRec);
-  if(ret < 0){
+  if(rs != RemoteStatus::Success){
     perror("Bad packet. ");
     return Status(rs);
   }

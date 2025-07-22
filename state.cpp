@@ -29,7 +29,6 @@ ConnectionMap connections;
 Tcb::Tcb(LocalPair l, RemotePair r, bool passive) : lP(l), rP(r), passiveOpen(passive){}
 Status::Status(LocalStatus l, RemoteStatus r): ls(l), rs(r){}
 
-
 void printLocalStatus(LocalStatus c){
   string s = "local status: ";
   switch(c){
@@ -54,7 +53,7 @@ void printRemoteStatus(RemoteStatus c){
     case RemoteStatus::UnexpectedPacket:
       s += "unexpected packet";
       break;
-    case RemoteStatus::MalformedPacket:
+    case RemoteStatus::BadPacketTcp:
       s += "malformed packet";
       break;
     case RemoteStatus::SuspectedCrash:
@@ -172,15 +171,18 @@ LocalStatus sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAc
     sPacket.setFlag(TcpPacketFlags::ack);
     sPacket.setAck(b.rNxt);
   }
-    sPacket.setFlag(TcpPacketFlags::syn).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.iss).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(lp.first, rp.first);
+  sPacket.setFlag(TcpPacketFlags::syn).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.iss).setWindow(b.rWnd).setOptions(options).setPayload(data);
     
   if(b.myMSS != defaultMSS){
-  
-  
+    vector<uint8_t> mss;
+    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.myMSS),mss);
+    TcpOption(TcpOptionKind::mss, 0x4, true, mss) mssOpt;
+    options.push_back(mssOpt);
+    sPacket.setDataOffset(sPacket.getDataOffset() + 1); //since the mss option is 4 bytes we can cleanly add one word to offset.
   }
-    .setDataOffset(0x05)
-
-
+  
+  sPacket.optionList = options;
+  sPacket.setRealChecksum(lp.first, rp.first);  
   LocalStatus ls = sendPacket(socket, rp.first, sPacket);
   return ls;
 }
@@ -269,8 +271,9 @@ Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
     uint32_t segLen = tcpP.getSegSize();
     if(!checkSecurity(b, ipP)){
       LocalStatus c = sendReset(socket, b.lP, recPair, tcpP.getSeqNum() + seqLen , true, 0);
-      return Status(c, RemoteStatus::MalformedPacket);
+      return Status(c, RemoteStatus::BadPacketTcp);
     }
+    
     
     pickRealIsn(b);
     tcpP.irs = tcpP.getSeqNum();
@@ -320,7 +323,7 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
       notifyApp(b, TcpCode::ConnRst);
       return Status();
     }
-    else return Status(RemoteStatus::MalformedPacket); 
+    else return Status(RemoteStatus::BadPacketTcp); 
   }
   
   if(!checkSecurity(b,ipP)){
@@ -331,7 +334,7 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     else{
       c = sendReset(socket, b.lP, b.rP, seqN + tcpP.getSegSize(),true,0);
     }
-    return Status(c,RemoteStatus::MalformedPacket);
+    return Status(c,RemoteStatus::BadPacketTcp);
   }
   
   if(tcpP.getFlag(TcpPacketFlags::syn)){
@@ -438,10 +441,10 @@ Status checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, 
       c = sendReset(socket, b.lP, b.rP, tcpP.getSeqNum() + tcpP.getSegSize(),true,0);
     }
     
-    if(c != LocalStatus::Success) return Status(c,RemoteStatus::MalformedPacket);
+    if(c != LocalStatus::Success) return Status(c,RemoteStatus::BadPacketTcp);
     
     Status s = nextLogic(socket,b,tcpP);
-    return Status(s.ls,RemoteStatus::MalformedPacket);
+    return Status(s.ls,RemoteStatus::BadPacketTcp);
   }
   
   return Status();
@@ -1068,8 +1071,6 @@ void removeConn(Tcb& b){
   
 }
 
-
-
 /*
 open
 models the open action for the application interface
@@ -1157,7 +1158,7 @@ Status multiplexIncoming(int socket){
   SegmentEv ev;
   ev.packet = retPacket;
   
-  Status s = retPacket(socket,retPacket);
+  Status s = recPacket(socket,retPacket);
   if(s.ls == LocalStatus::Success && s.rs == RemoteStatus::Success){
     TcpPacket& p = retPacket.getTcpPacket();
 
@@ -1167,7 +1168,7 @@ Status multiplexIncoming(int socket){
     uint16_t destPort = p.getSrcPort();
     
     //drop the packet, unspec values are invalid
-    if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return Status(RemoteStatus::MalformedPacket);
+    if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return Status(RemoteStatus::BadPacketTcp);
     
     LocalPair lP(sourceAddress, sourcePort);
     RemotePair rP(destAddress, destPort);
@@ -1192,10 +1193,42 @@ Status multiplexIncoming(int socket){
         ls = sendReset(socket, lP, rP, p.getSeqNum() + p.getSegSize(),true,0);
       }
     }
+    
     return Status(ls, RemoteStatus::UnexpectedPacket);
     
   }
-  else s;
+  else{
+    
+    //only send a reset if something related to tcp was malformed.
+    //If something related to ip is malformed, we never got to parsing the tcp segment so theres no point in even trying to send a reset
+    //Ideally this will always be an error with tcp and not ip because the kernel checks before passing to the raw socket should drop the packet.
+    if(s.rs == RemoteStatus::BadPacketTcp){
+      TcpPacket& p = retPacket.getTcpPacket();
+      uint32_t sourceAddress = retPacket.getDestAddr();
+      uint32_t destAddress = retPacket.getSrcAddr();
+      uint16_t sourcePort = p.getDestPort();
+      uint16_t destPort = p.getSrcPort();
+    
+      //either we didnt even get to parse the address info, or we did and it is invalid. Either way can't send a reset.
+      if(sourceAddress == Unspecified || destAddress == Unspecified || sourcePort == Unspecified || destPort == Unspecified) return s;
+    
+      LocalPair lP(sourceAddress, sourcePort);
+      RemotePair rP(destAddress, destPort);
+      LocalStatus ls;
+      if(!p.getFlag(TcpPacketFlags::rst)){
+        if(p.getFlag(TcpPacketFlags::ack)){
+          ls = sendReset(socket, lP, rP, 0, false, p.getAckNum());
+        }
+        else{
+          ls = sendReset(socket, lP, rP, p.getSeqNum() + p.getSegSize(),true,0);
+        }
+      
+        return s;
+      }
+    }
+    
+    return s; 
+  }
   
 }
 

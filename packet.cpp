@@ -20,7 +20,7 @@ uint16_t TcpOption::getSize(){
 }
 
 
-TcpOption::TcpOption(uint8_t k, uint8_t len, uint8_t hasLen, vector<uint8_t> d): kind(k), length(len), hasLength(hasLen), data(d){
+TcpOption::TcpOption(uint8_t k, uint8_t len, bool hasLen, vector<uint8_t> d): kind(k), length(len), hasLength(hasLen), data(d){
   size = calcSize();
 };
 
@@ -58,27 +58,34 @@ RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& 
   
   kind = k;
   if( k == static_cast<uint8_t>(TcpOptionKind::end)){
-      hasLength = 0;
+      hasLength = false;
       size = calcSize();
       retBytes = numBytesRemaining; //even if dataoffset claims there are more bytes, end means that reading needs to stop.
       return RemoteStatus::Success;
   }
-
-  if(k == static_cast<uint8_t>(TcpOptionKind::noOp) || numBytesRemaining < 2){
-      hasLength = 0;
+  if(k == static_cast<uint8_t>(TcpOptionKind::noOp)){
+      hasLength = false;
       size = calcSize();
       retBytes = numBytesRead;
       return RemoteStatus::Success;
   }
+
+  //at this point it is either the mss option or some other option. either way this option will have to have a length field according to RFC 9293 MUST68
+  if(numBytesRemaining < 2) return RemoteStatus::BadPacketTcp;
   
   uint8_t len = buffer[1];
+  //length field includes itself and the kind byte. Anything less than 2 doesnt make sense
+  if(len < 2) return RemoteStatus::BadPacketTcp;
+  if(k == static_cast<uint8_t>(TcpOptionKind::mss) && len != 4) return RemoteStatus::BadPacketTcp;
+  
   numBytesRead = numBytesRead + 1;
   length = len;
-  hasLength = 1;
+  hasLength = true;
   
-  uint8_t dataLength = length -2; // to account for length and type field
   
-  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::MalformedPacket;
+  uint8_t dataLength = len -2; // to account for length and type field
+  
+  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::BadPacketTcp;
   
   for(uint8_t i = 0; i < dataLength; i++){
     data.push_back(buffer[2 + i]);
@@ -91,7 +98,7 @@ RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& 
 }
 
 
-IpOption::IpOption(uint8_t t, uint8_t len, uint8_t hasLen): type(t), length(len), hasLength(hasLen){};
+IpOption::IpOption(uint8_t t, uint8_t len, bool hasLen): type(t), length(len), hasLength(hasLen){};
 
 void IpOption::print(){
 
@@ -128,13 +135,13 @@ RemoteStatus IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& r
   
   type = t;
   if( t == static_cast<uint8_t>(IpOptionType::eool)){
-      hasLength = 0;
+      hasLength = false;
       retBytes = numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
       return RemoteStatus::Success;
   }
 
   if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
-      hasLength = 0;
+      hasLength = false;
       retBytes = numBytesRead;
       return RemoteStatus::Success;
   }
@@ -142,11 +149,11 @@ RemoteStatus IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& r
   uint8_t len = buffer[1];
   numBytesRead = numBytesRead + 1;
   length = len;
-  hasLength = 1;
+  hasLength = true;
   
   uint8_t dataLength = length -2; // to account for length and type field
   
-  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::MalformedPacket;
+  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::BadPacketIp;
   
   for(uint8_t i = 0; i < dataLength; i++){
     data.push_back(buffer[2 + i]);
@@ -167,11 +174,8 @@ void onesCompAdd(uint16_t& num1, uint16_t num2){
   num1 = static_cast<uint16_t>(res);
 }
 
-TcpPacket::TcpPacket():sourcePort(0),destPort(0),seqNum(0),ackNum(0),flags(0),window(0),checksum(0),urgPointer(0){
-
-  setDataOffset(0x5);
-  setReserved(0x0);
-
+TcpPacket::TcpPacket(){
+  setDataOffset(defaultTcpDataOffset);
 };
 
 
@@ -350,7 +354,7 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < tcpMinHeaderLen){
-    return RemoteStatus::MalformedPacket;
+    return RemoteStatus::BadPacketTcp;
   }
 
   sourcePort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,0));
@@ -364,7 +368,7 @@ RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   urgPointer = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,18));
 
   uint8_t offsetConv = getDataOffset() * 4;
-  if(offsetConv < 20 || offsetConv > numBytes) return RemoteStatus::MalformedPacket;
+  if(offsetConv < 20 || offsetConv > numBytes) return RemoteStatus::BadPacketTcp;
   
   uint8_t* currPointer = buffer + tcpMinHeaderLen;
   
@@ -549,7 +553,7 @@ TcpPacket& IpPacket::getTcpPacket(){ return tcpPacket;}
 RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < ipMinHeaderLen){
-    return RemoteStatus::MalformedPacket;
+    return RemoteStatus::BadPacketIp;
   }
   
   versionIHL = buffer[0];
@@ -564,7 +568,7 @@ RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   destAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,16));
   
   uint8_t ihlConv = getIHL() * 4;
-  if(ihlConv < 20 || ihlConv > numBytes) return RemoteStatus::MalformedPacket;
+  if(ihlConv < 20 || ihlConv > numBytes) return RemoteStatus::BadPacketIp;
   
   uint8_t* currPointer = buffer + ipMinHeaderLen;
   
