@@ -53,7 +53,7 @@ enum class TcpPacketFlags{
 class TcpPacket{
 
   public:
-    TcpPacket() = default;
+    TcpPacket();
     TcpPacket& setFlag(TcpPacketFlags flag);
     TcpPacket& setSrcPort(uint16_t source);
     TcpPacket& setDestPort(uint16_t dest);
@@ -78,32 +78,27 @@ class TcpPacket{
     uint32_t getAckNum();
     uint16_t getWindow();
     uint16_t getUrg();
-    
     uint32_t getSegSize();
+    uint16_t calcSize();
+    uint8_t getFlag(TcpPacketFlags flag);
+    uint8_t getDataOffset();
+    uint8_t getReserved();
+    
     std::vector<uint8_t> payload;
     std::vector<TcpOption> optionList;
     
     //all multi-byte fields are guaranteed to be in host byte order.
   private:
-    uint16_t calcSize();
     uint16_t size;
-    
-    uint8_t getFlag(TcpPacketFlags flag);
-    uint8_t getDataOffset();
-    uint8_t getReserved();
-
     uint16_t sourcePort;
     uint16_t destPort;
-
     uint32_t seqNum;
     uint32_t ackNum;
     uint8_t dataOffReserved;
     uint8_t flags;
     uint16_t window;
-
     uint16_t checksum;
     uint16_t urgPointer;
-
 };
 
 

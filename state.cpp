@@ -144,37 +144,57 @@ LocalStatus sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, 
   if(ackFlag){
     sPacket.setFlag(TcpPacketFlags::ack);
   }
-  sPacket.setFlag(TcpPacketFlags::rst).setSrcPort(lP.second).setDestPort(rP.second).setSeq(seqNum).setAck(ackNum).setDataOffset(0x05).setReserved(0x00).setWindow(0x00).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+  sPacket.setFlag(TcpPacketFlags::rst).setSrcPort(lP.second).setDestPort(rP.second).setSeq(seqNum).setAck(ackNum).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
   LocalStatus ls = sendPacket(socket, rP.first, sPacket);
   return ls;
   
 }
 
-LocalStatus sendChallengeAck(int socket, Tcb& b){
+LocalStatus sendCurrentAck(int socket, Tcb& b){
 
   TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+  sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
   LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
   return ls;
+}
 
+LocalStatus sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
+
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  TcpPacket sPacket;
+     
+  if(sendAck){
+    sPacket.setFlag(TcpPacketFlags::ack);
+    sPacket.setAck(b.rNxt);
+  }
+    sPacket.setFlag(TcpPacketFlags::syn).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.iss).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(lp.first, rp.first);
+    
+  if(b.myMSS != defaultMSS){
+  
+  
+  }
+    .setDataOffset(0x05)
+
+
+  LocalStatus ls = sendPacket(socket, rp.first, sPacket);
+  return ls;
 }
 
 Status ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
-  vector<TcpOption> v;
-  TcpPacket p;
   bool passive = oe.passive;
   if(!passive){
     if(b.rP.first == Unspecified || b.rP.second == Unspecified){
       notifyApp(b, TcpCode::ActiveUnspec);
       return Status();
-    } p.setFlag(TcpPacketFlags::syn).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
-  
-    LocalStatus ls = sendPacket(socket, b.rP.first, p);
+    }
+    
+    LocalStatus ls = sendSyn(socket, b, b.lP, b.rP, false);
     if(ls == LocalStatus::Success){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
@@ -256,12 +276,7 @@ Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
     tcpP.irs = tcpP.getSeqNum();
     tcpP.rNxt = tcpP.getSeqNum() + 1;
       
-    vector<TcpOption> options;
-    vector<uint8_t> data;
-    TcpPacket sPacket;
-      sPacket.setFlag(TcpPacketFlags::syn).setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(recPair.second).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, recPair.first);
-      
-    LocalStatus ls = sendPacket(socket,recPair.first,sPacket);
+    LocalStatus ls = sendSyn(socket, b, b.lP, recPair, true);
     if(ls == LocalStatus::Success){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
@@ -327,20 +342,13 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     b.rNxt = seqN + 1; // only syn is processed, other control or data is processed in further states
     b.irs = seqN;
   
-    vector<TcpOption> options;
-    vector<uint8_t> data;
-    TcpPacket sPacket;
-
     if(tcpP.getFlag(TcpPacketFlags::ack)){
       //standard connection attempt
       b.sWl2 = tcpP.getAckNum();
       b.sUna = tcpP.getAckNum(); // ack already validated earlier in method
       //TODO: remove segments that are acked from retransmission queue.
-      
       //TODO: data or controls that were queued for transmission may be added to this packet
-      sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+      LocalStatus ls = sendCurrentAck(socket, b);
       if(ls == LocalStatus::Success){
           b.currentState = EstabS();
       }
@@ -349,9 +357,7 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     }
     else{
       //simultaneous connection attempt
-      sPacket.setFlag(TcpPacketFlags::syn).setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(b.rNxt).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
-      
-      LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+      LocalStatus ls = sendSyn(socket, b, b.lP, b.rP, true);
       if(ls != LocalStatus::Success){
         b.currentState = synReceived;
       }
@@ -369,7 +375,7 @@ Status checkSequenceNum(int socket, Tcb& b, TcpPacket& tcpP){
   if(!verifyRecWindow(b,tcpP)){
     if(!tcpP.getFlag(TcpPacketFlags::rst)){
       
-      LocalStatus ls = sendChallengeAck(socket,b);
+      LocalStatus ls = sendCurrentAck(socket,b);
       return Status(ls,RemoteStatus::UnexpectedPacket);
       
     }
@@ -398,7 +404,7 @@ Status checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, funct
       if(!windowChecked && !verifyRecWindow(b,tcpP)) return Status(RemoteStatus::UnexpectedPacket);
       
       if(seqNum != b.rNxt){  
-        LocalStatus ls = sendChallengeAck(socket,b);
+        LocalStatus ls = sendCurrentAck(socket,b);
         return Status(ls,RemoteStatus::MalicPacket);        
       }
       
@@ -447,7 +453,7 @@ Status checkSyn(int socket, Tcb& b, TcpPacket& tcpP){
   if(tcpP.getFlag(TcpPacketFlags::syn){
   
     //challenge ack recommended by RFC 5961  
-    LocalStatus ls = sendChallengeAck(socket, b);
+    LocalStatus ls = sendCurrentAck(socket, b);
     return Status(ls, RemoteStatus::MalicPacket);
     
   }
@@ -464,7 +470,7 @@ Status checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, 
     //RFC 5661S5 injection attack check
     if(!((ackNum >= (b.sUna - b.maxSWnd)) && (ackNum <= b.sNxt))){
         
-      LocalStatus ls = sendChallengeAck(socket,b);
+      LocalStatus ls = sendCurrentAck(socket,b);
       return Status(ls,RemoteStatus::MalicPacket);
       
     }
@@ -499,7 +505,7 @@ Status establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP){
     }
     else{
       if(ackNum > b.sNxt){
-            sendChallengeAck(socket,b,tcpP);
+            sendCurrentAck(socket,b,tcpP);
       }
       return Status(RemoteStatus::UnexpectedPacket);
     }    
@@ -600,7 +606,7 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
       return Status();
     }
     //challenge ack recommended by RFC 5961  
-    LocalStatus ls = sendChallengeAck(socket,b);
+    LocalStatus ls = sendCurrentAck(socket,b);
     return Status(ls, RemoteStatus::MalicPacket);
     
   }
@@ -665,7 +671,7 @@ Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkFin(socket,b,tcpP,goodFinLogic);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
         
-  LocalStatus ls = sendChallengeAck(socket,b);
+  LocalStatus ls = sendCurrentAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
 }
@@ -716,7 +722,7 @@ Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkFin(socket,b,tcpP,goodFinLogic);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
         
-  LocalStatus ls = sendChallengeAck(socket,b);
+  LocalStatus ls = sendCurrentAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
 }
@@ -763,7 +769,7 @@ Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkFin(socket,b,tcpP,goodFinLogic);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
         
-  LocalStatus ls = sendChallengeAck(socket,b);
+  LocalStatus ls = sendCurrentAck(socket,b);
   return Status(ls, RemoteStatus::Success); 
   
 
@@ -846,6 +852,40 @@ Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
   s = checkSaveForLater(b,ipP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
+  s = checkReset(socket,b,tcpP,true,remConnOnly);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  s = checkSec(socket,b,tcpP,remConnFlushAll);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  s = checkSyn(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  function<Status(int,Tcb&,TcpPacket&)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP){
+    if(tcpP.getAckNum() == b.sNxt){
+      removeConn(b);
+      return Status();
+    }
+    else return Status(RemoteStatus::UnexpectedPacket);
+  };
+  s = checkAck(socket,b,tcpP,goodAckLogic);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+  
+  //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
+  //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
+  return Status(RemoteStatus::UnexpectedPacket);
+}
+
+//TODO: investigate if timestamp RFC 6191 is worth implementing
+Status TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
+
+  Status s;
+  IpPacket& ipP = se.packet;
+  TcpPacket& tcpP = ipP.getTcpPacket();
+  
+  s = checkSequenceNum(socket,b,tcpP);
+  if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
+    
   s = checkReset(socket,b,tcpP,true,remConnOnly);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
@@ -1082,11 +1122,9 @@ int open(bool passive, LocalPair lP, RemotePair rP){
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
     pickRealIsn(newConn);
-    vector<TcpOption> v;
-    TcpPacket p;
-   p.setFlag(TcpPacketFlags::syn).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.iss).setAck(0x00).setDataOffset(0x05).setReserved(0x00).setWindow(b.rWnd).setUrgentPointer(0x00).setOptions(v).setRealChecksum(b.lP.first,b.rP.first);
   
-    if(sendPacket(socket, b.rP.first, p) != -1){
+    LocalStatus ls = sendSyn(socket,b,b.lP,b.rP,false);
+    if(ls == LocalStatus::Success){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
       b.currentState = SynSentS();
@@ -1188,25 +1226,4 @@ Status entryTcp(char* sourceAddr){
   
   return Status();
 }
-
-
-/*
-  all state logic functions are functions that are called when 
-  the socket receives some signal(either packet from peer or command from user) for a connection
-  that is in the respective state. A non null pointer to the packet means the socket received
-  a packet from the peer for the connection represented by b. A null pointer to the packet means 
-  an action by a user was called for the connection represented by b.  A null pointer to a packet and 
-  a none event from the user does not make sense and will result in an error.
-  
-  Since the fictional closed state is not a real state and represents a non existent connection,
-  this logic is handled in the entry point functions(either the action functions or socket rec) themselves.
-
-  all state functions must have Code ret, params: socket, Tcb, IpPacket*, Event, evData signature
-*/
-
-
-
-
-
-
 

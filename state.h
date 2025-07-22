@@ -7,12 +7,11 @@
 
 #define Unspecified 0
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
-
 #define dynPortStart 49152
 #define dynPortEnd 65535
-
 #define recBufferMax 500
 #define sendBufferMax 500
+#define defaultMSS 536 // maximum segment size
 
 typedef pair<uint32_t, uint16_t> LocalPair;
 typedef pair<uint32_t, uint16_t> RemotePair;
@@ -75,20 +74,24 @@ class Tcb{
     uint32_t sWnd; // window specified by my peer. how many bytes they can hold in buffer.
     uint32_t iss; //initial sequence number i chose for my data.
     
-    uint32_t sUp; 
-    uint32_t sWl1;
-    uint32_t sWl2;
+    uint32_t sUp; //start sequence number of urgent data in peer buffer
+    uint32_t sWl1; //sequence number used for last peer window update
+    uint32_t sWl2; //ack number used for last peer window update 
 
 
     uint32_t rNxt; // first seq num of data I have not received from my peer.
     uint32_t rWnd; // window advertised by me to my peer. how many bytes i can hold in buffer.
-    uint32_t rUp;
+    uint32_t rUp; //start sequence number of urgent data in my buffer
     uint32_t irs; // initial sequence number chosen by peer for their data.
     
     uint32_t maxSWnd;
     //pointer to place in buffer where app has not consumed yet.
     uint16_t appNewData;
     bool urgentSignaled;
+    
+    //16 bits to match ip packet 16 bit length field.
+    uint16_t peerMss;
+    uint16_t myMss;
     
     unordered_map<uint32_t, IpPacket> waitingPackets;
     
@@ -179,6 +182,7 @@ class LastAckS : State{
 class TimeWaitS : State{
   public:
     Code processEvent(int socket, Tcb& b, OpenEv& oe);
+    Code processEvent(int socket, Tcb& b, SegmentEv& se);
 };
 
 

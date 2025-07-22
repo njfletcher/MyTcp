@@ -167,6 +167,14 @@ void onesCompAdd(uint16_t& num1, uint16_t num2){
   num1 = static_cast<uint16_t>(res);
 }
 
+TcpPacket::TcpPacket():sourcePort(0),destPort(0),seqNum(0),ackNum(0),flags(0),window(0),checksum(0),urgPointer(0){
+
+  setDataOffset(0x5);
+  setReserved(0x0);
+
+};
+
+
 uint16_t TcpPacket::calcSize(){
   
   uint16_t sz = 20; //standard header
