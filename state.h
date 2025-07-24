@@ -1,7 +1,7 @@
 #pragma once
-
 #include <cstdint>
-#include "packet.h"
+#include "tcpPacket.h"
+#include "ipPacket.h"
 #include <utility>
 #include <queue>
 

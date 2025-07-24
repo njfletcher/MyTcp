@@ -1,5 +1,6 @@
 #include "state.h"
-#include "packet.h"
+#include "ipPacket.h"
+#include "tcpPacket.h"
 #include <chrono>
 #include <cstdint>
 #include <openssl/evp.h>
@@ -102,6 +103,20 @@ void notifyApp(Tcb&b, TcpCode c){
 //TODO: research tcp security/compartment and how this check should work
 bool checkSecurity(Tcb& b, IpPacket& p){
   return true;
+}
+
+uint16_t getEffectiveSendMss(){
+//mtu: maximum transmission unit. Maximum amount of bytes that ip header + ip payload can reach before failure or fragmentation. 
+//-either use default of 576(rfc 1122) or some algorithm like path mtu discovery.
+//mss: maximum tcp segment size.This is what we send in the tcp option and refers to the data of a segment and not the tcp header.
+//-take mtu and subtract fixed length of ip and tcp headers(40).
+//mms_s: maximum transport message size including transport header that my ip layer can send. 
+//-fetch from ip layer implementation
+//mms_r: maximum transport message size including transport header that my ip layer can receive.
+//-fetch from ip layer implementation
+//effective send mss: what amount of data we can actually send to the tcp peer. Again does not include transport header.
+//- calculate min(peerMss, mms_s - 20) -tcpOptionSize - ipOptionSize
+
 }
 
 bool verifyRecWindow(Tcb& b, TcpPacket& p){
