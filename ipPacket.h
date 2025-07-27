@@ -89,11 +89,12 @@ class IpPacket{
     uint8_t getFlag(IpPacketFlags flag);
     uint16_t getFragOffset();
     
-    RemoteStatus fromBuffer(uint8_t** bufferWrap, int numBytes, int* numBytesInner);
+    RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
 
     std::vector<IpOption> optionList;
+    TcpPacket& tcpPacket;
     
   //all multi-byte fields are guaranteed to be in host byte order.
   private:

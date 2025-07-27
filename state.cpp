@@ -266,8 +266,8 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
 Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
   RemotePair recPair(ipP.getSrcAddr(), tcpP.getSrcPort());
     
   //if im in the listen state, I havent sent anything, so rst could not be referring to anything valid.
@@ -313,8 +313,8 @@ Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
 Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
 
   uint8_t ackFlag = tcpP.getFlag(TcpPacketFlags::ack);
   if(ackFlag){
@@ -587,9 +587,9 @@ Status checkFin(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, 
 
 Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
  
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
   Status s;
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
   
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -654,10 +654,10 @@ Status SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se removeConn(b);
 
 Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
   Status s;
-  
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
+
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
   
@@ -697,8 +697,8 @@ Status EstabS::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
 
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -748,8 +748,8 @@ Status FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;  
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
 
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -796,8 +796,8 @@ Status FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
 
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -825,8 +825,8 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
 
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -861,8 +861,8 @@ Status ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
   
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -898,8 +898,8 @@ Status LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se){
 Status TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   Status s;
-  IpPacket& ipP = se.packet;
-  TcpPacket& tcpP = ipP.getTcpPacket();
+  IpPacket& ipP = se.ipPacket;
+  TcpPacket& tcpP = ipP.tcpPacket;
   
   s = checkSequenceNum(socket,b,tcpP);
   if(s.ls != LocalStatus::Success || s.rs != RemoteStatus::Success) return s;
@@ -1171,14 +1171,11 @@ Status multiplexIncoming(int socket){
 
   IpPacket retPacket;
   SegmentEv ev;
-  ev.packet = retPacket;
-  int numBytesInner = 0;
-  Status s = recPacket(socket,retPacket, &numBytesInner);
+  ev.ipPacket = retPacket;
+  
+  Status s = recPacket(socket,retPacket);
   if(s.ls == LocalStatus::Success && s.rs == RemoteStatus::Success){
-    // since socket is bound with TCP_Proto, kernel will have already guaranteed this is a tcp packet before passing it to us.
-    // if using ip_hdrctl in the future, will have to check the proto number first.
-    TcpPacket& p = retPacket.getTcpPacket();
-
+    TcpPacket& p = retPacket.tcpPacket;
     uint32_t sourceAddress = retPacket.getDestAddr();
     uint32_t destAddress = retPacket.getSrcAddr();
     uint16_t sourcePort = p.getDestPort();
@@ -1220,7 +1217,7 @@ Status multiplexIncoming(int socket){
     //If something related to ip is malformed, we never got to parsing the tcp segment so theres no point in even trying to send a reset
     //Ideally this will always be an error with tcp and not ip because the kernel checks before passing to the raw socket should drop the packet.
     if(s.rs == RemoteStatus::BadPacketTcp){
-      TcpPacket& p = retPacket.getTcpPacket();
+      TcpPacket& p = retPacket.tcpPacket;
       uint32_t sourceAddress = retPacket.getDestAddr();
       uint32_t destAddress = retPacket.getSrcAddr();
       uint16_t sourcePort = p.getDestPort();

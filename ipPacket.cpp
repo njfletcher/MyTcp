@@ -213,17 +213,9 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
 
 /*
 IpPacket fromBuffer
-Converts raw bytes into an IpPacket object.
-When being called, bufferWrap should point to a pointer of raw ip packet bytes. 
-After return, bufferWrap will point to a pointer of where the inner packet starts in the buffer.
-numBytes is the length of the input buffer of raw bytes.
-After return, numBytesInner will tell how many bytes are left for the inner packet.
+takes raw bytes and fills in the ip packet with them.
 */
-
-RemoteStatus IpPacket::fromBuffer(uint8_t** bufferWrap, int numBytes, int* numBytesInner){
-  
-  *numBytesInner = 0;
-  uint8_t* buffer = *bufferWrap;
+RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < ipMinHeaderLen){
     return RemoteStatus::BadPacketIp;
@@ -262,9 +254,8 @@ RemoteStatus IpPacket::fromBuffer(uint8_t** bufferWrap, int numBytes, int* numBy
   }
   
   int bytesRemaining = numBytes - ihlConv;
-  *numBytesInner = bytesRemaining;
-  *bufferWrap = currPointer;
-  return RemoteStatus::Success;
+  RemoteStatus s = tcpPacket.fromBuffer(currPointer, bytesRemaining);
+  return Status(s);
 }
 
 

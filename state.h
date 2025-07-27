@@ -113,7 +113,7 @@ class OpenEv : public Event{
 };
 class SegmentEv : public Event{
   public:
-    IpPacket& packet;
+    IpPacket& ipPacket;
 };
 class FurtherProcEv: public Event{
 };
