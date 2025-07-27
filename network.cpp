@@ -56,8 +56,9 @@ LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   return LocalStatus::Success;
 }
 
-Status recPacket(int sock, IpPacket& packet){
+Status recPacket(int sock, InnerPacket& packet){
 
+  *numBytesInner = 0;
   ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
 	
   if(numRec < 0){
@@ -65,7 +66,7 @@ Status recPacket(int sock, IpPacket& packet){
     return Status(LocalStatus::RawSocket);
   }   
 	
-  RemoteStatus rs = packet.fromBuffer(ipBuffer, numRec);
+  RemoteStatus rs = packet.fromBuffer(ipBuffer, numRec, numBytesInner);
   if(rs != RemoteStatus::Success){
     perror("Bad packet. ");
     return Status(rs);

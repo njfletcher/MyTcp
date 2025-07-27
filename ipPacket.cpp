@@ -132,16 +132,6 @@ IpPacket& IpPacket::setDestAddr(uint32_t addr){
   return *this;
 }
 
-IpPacket& IpPacket::setOptions(std::vector<IpOption> list){
-  optionList = list;
-  return *this;
-}
-
-IpPacket& IpPacket::setTcpPacket(TcpPacket& packet){
-  tcpPacket = packet;
-  return *this;
-}
-
 
 uint32_t IpPacket::getSrcAddr(){ return sourceAddress;}
 uint32_t IpPacket::getDestAddr(){ return destAddress;}
@@ -220,9 +210,20 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
         tcpPacket.toBuffer(buff);
 }
 
-TcpPacket& IpPacket::getTcpPacket(){ return tcpPacket;}
 
-RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+/*
+IpPacket fromBuffer
+Converts raw bytes into an IpPacket object.
+When being called, bufferWrap should point to a pointer of raw ip packet bytes. 
+After return, bufferWrap will point to a pointer of where the inner packet starts in the buffer.
+numBytes is the length of the input buffer of raw bytes.
+After return, numBytesInner will tell how many bytes are left for the inner packet.
+*/
+
+RemoteStatus IpPacket::fromBuffer(uint8_t** bufferWrap, int numBytes, int* numBytesInner){
+  
+  *numBytesInner = 0;
+  uint8_t* buffer = *bufferWrap;
   
   if(numBytes < ipMinHeaderLen){
     return RemoteStatus::BadPacketIp;
@@ -260,11 +261,10 @@ RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
     optionList = options;
   }
   
-  int tcpBytesRemaining = numBytes - ihlConv;
-  RemoteStatus r = tcpPacket.fromBuffer(currPointer, tcpBytesRemaining);
-  if(r != RemoteStatus::Success) return r;
-  else return RemoteStatus::Success;
-  
+  int bytesRemaining = numBytes - ihlConv;
+  *numBytesInner = bytesRemaining;
+  *bufferWrap = currPointer;
+  return RemoteStatus::Success;
 }
 
 

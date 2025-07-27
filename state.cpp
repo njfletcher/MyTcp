@@ -1172,9 +1172,11 @@ Status multiplexIncoming(int socket){
   IpPacket retPacket;
   SegmentEv ev;
   ev.packet = retPacket;
-  
-  Status s = recPacket(socket,retPacket);
+  int numBytesInner = 0;
+  Status s = recPacket(socket,retPacket, &numBytesInner);
   if(s.ls == LocalStatus::Success && s.rs == RemoteStatus::Success){
+    // since socket is bound with TCP_Proto, kernel will have already guaranteed this is a tcp packet before passing it to us.
+    // if using ip_hdrctl in the future, will have to check the proto number first.
     TcpPacket& p = retPacket.getTcpPacket();
 
     uint32_t sourceAddress = retPacket.getDestAddr();

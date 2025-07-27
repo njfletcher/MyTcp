@@ -5,7 +5,7 @@
 
 int bindSocket(uint32_t sourceAddr);
 LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p);
-Status recPacket(int sock, IpPacket& packet);
+Status recPacket(int sock, IpPacket& packet, int* numBytesInner);
 
 template<typename T>
 T toAltOrder(T val){

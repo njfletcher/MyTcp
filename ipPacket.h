@@ -79,8 +79,6 @@ class IpPacket{
     IpPacket& setHeadCheck(uint16_t check);
     IpPacket& setSrcAddr(uint32_t addr);
     IpPacket& setDestAddr(uint32_t addr);
-    IpPacket& setOptions(std::vector<IpOption> list);
-    IpPacket& setTcpPacket(TcpPacket& packet);
     
     uint32_t getSrcAddr();
     uint32_t getDestAddr();
@@ -91,10 +89,11 @@ class IpPacket{
     uint8_t getFlag(IpPacketFlags flag);
     uint16_t getFragOffset();
     
-    RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
+    RemoteStatus fromBuffer(uint8_t** bufferWrap, int numBytes, int* numBytesInner);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
-    TcpPacket& getTcpPacket();
+
+    std::vector<IpOption> optionList;
     
   //all multi-byte fields are guaranteed to be in host byte order.
   private:
@@ -112,8 +111,6 @@ class IpPacket{
     uint32_t sourceAddress = 0;
     uint32_t destAddress = 0;
     
-    std::vector<IpOption> optionList;
-    TcpPacket tcpPacket;
 };
 
 
