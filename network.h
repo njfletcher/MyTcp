@@ -2,10 +2,14 @@
 #include "packet.h"
 #include <vector>
 #define TCP_PROTO 6 
+#define defaultMTU 576
 
 int bindSocket(uint32_t sourceAddr);
 LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p);
 Status recPacket(int sock, IpPacket& packet);
+uint32_t getMtu(uint32_t destAddr);
+uint32_t getMmsR();
+uint32_t getMmsS();
 	
 
 template<typename T>

@@ -105,19 +105,24 @@ bool checkSecurity(Tcb& b, IpPacket& p){
   return true;
 }
 
-uint16_t getEffectiveSendMss(){
-//mtu: maximum transmission unit. Maximum amount of bytes that ip header + ip payload can reach before failure or fragmentation. 
-//-either use default of 576(rfc 1122) or some algorithm like path mtu discovery.
-//mss: maximum tcp segment size.This is what we send in the tcp option and refers to the data of a segment and not the tcp header.
-//-take mtu and subtract fixed length of ip and tcp headers(40).
-//mms_s: maximum transport message size including transport header that my ip layer can send. 
-//-fetch from ip layer implementation
-//mms_r: maximum transport message size including transport header that my ip layer can receive.
-//-fetch from ip layer implementation
-//effective send mss: what amount of data we can actually send to the tcp peer. Again does not include transport header.
-//- calculate min(peerMss, mms_s - 20) -tcpOptionSize - ipOptionSize
-
+//MSS: maximum tcp segment(data only) size.
+uint32_t getMSSValue(uint32_t destAddr){
+  uint32_t maxMss = getMmsR - 20;
+  uint32_t calcMss = getMtu(destAddr) - ipMinHeaderLen - tcpMinHeaderLen;
+  if(calcMss > maxMss) return maxMss;
+  else calcMss;
 }
+
+//effective send mss: how much tcp data are we actually allowed to send to the peer.
+uint32_t getEffectiveSendMss(Tcb& b, TcpPacket& tcpP){
+
+  uint32_t messageSize = b.peerMss + 20;
+  uint32_t mmsS = getMmsS();
+  if(mmsS < messageSize) messageSize = mmsS;
+  
+  return messageSize - tcpP.getOptionListByteCount() - tcpMinHeaderLen; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
+}
+
 
 bool verifyRecWindow(Tcb& b, TcpPacket& p){
 

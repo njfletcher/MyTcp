@@ -40,6 +40,7 @@ enum class TcpPacketFlags{
   cwr = 7
 };
 
+
 class TcpPacket{
 
   public:
@@ -76,6 +77,8 @@ class TcpPacket{
     
     std::vector<uint8_t> payload;
     std::vector<TcpOption> optionList;
+    
+    uint32_t getOptionListByteCount();
     
     //all multi-byte fields are guaranteed to be in host byte order.
   private:

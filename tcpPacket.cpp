@@ -107,18 +107,24 @@ void onesCompAdd(uint16_t& num1, uint16_t num2){
 
 TcpPacket::TcpPacket(){
   setDataOffset(defaultTcpDataOffset);
-};
-
-
-uint16_t TcpPacket::calcSize(){
-  
-  uint16_t sz = 20; //standard header
-  for(size_t i = 0; i < optionList.size(); i++){
-    sz = sz + optionList[i].getSize();
-  }
-  sz = sz + payload.size();
-  return sz;
 }
+
+uint32_t TcpPacket::getOptionListByteCount(){
+  uint32_t num = 0;
+  for(auto i = optionList.begin(); i < optionList.end(); i++){
+    TcpOption o = *i;
+    num = num + 1; //kind byte
+    if(o.hasLength){
+      num = num + 1;
+    }
+    num = num + o.data.size();
+    
+  }
+  return num;
+}
+
+
+
 
 TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
   

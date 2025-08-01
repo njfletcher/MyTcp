@@ -1,5 +1,5 @@
 #include "network.h"
-#include "packet.h"
+#include "ipPacket.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <cstdio>
@@ -10,6 +10,24 @@
 using namespace std;
 
 uint8_t ipBuffer[ipPacketMaxSize];
+
+//TODO: look into path mtu discovery.
+uint32_t getMtu(uint32_t destAddr){
+  return defaultMTU;
+}
+
+//MMS_R: maximum transport message that the ip implementation can receive and reassemble.
+//assuming for now that ip implementation can reassemble the max ip packet size
+uint32_t getMmsR(){
+  return ipPacketMaxSize - ipMinHeaderLen;
+}
+
+//MMS_S: maximum transport message that the ip implementation can send.
+//assuming for now that ip implementation can send the max ip packet size
+uint32_t getMmsS(){
+  return ipPacketMaxSize - ipMinHeaderLen;
+
+}
 
 //returns socket, or -1 if fail
 int bindSocket(uint32_t sourceAddr){

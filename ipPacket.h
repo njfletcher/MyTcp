@@ -89,6 +89,8 @@ class IpPacket{
     uint8_t getFlag(IpPacketFlags flag);
     uint16_t getFragOffset();
     
+    uint32_t getOptionListByteCount();
+    
     RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();

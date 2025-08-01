@@ -210,6 +210,20 @@ void IpPacket::toBuffer(vector<uint8_t>& buff){
         tcpPacket.toBuffer(buff);
 }
 
+uint32_t IpPacket::getOptionListByteCount(){
+  uint32_t num = 0;
+  for(auto i = optionList.begin(); i < optionList.end(); i++){
+    IpOption o = *i;
+    num = num + 1; //kind byte
+    if(o.hasLength){
+      num = num + 1;
+    }
+    num = num + o.data.size();
+    
+  }
+  return num;
+}
+
 
 /*
 IpPacket fromBuffer
