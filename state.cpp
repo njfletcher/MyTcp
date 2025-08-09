@@ -107,7 +107,7 @@ bool checkSecurity(Tcb& b, IpPacket& p){
 
 //MSS: maximum tcp segment(data only) size.
 uint32_t getMSSValue(uint32_t destAddr){
-  uint32_t maxMss = getMmsR - 20;
+  uint32_t maxMss = getMmsR - tcpMinHeaderLen;
   uint32_t calcMss = getMtu(destAddr) - ipMinHeaderLen - tcpMinHeaderLen;
   if(calcMss > maxMss) return maxMss;
   else calcMss;
@@ -116,7 +116,7 @@ uint32_t getMSSValue(uint32_t destAddr){
 //effective send mss: how much tcp data are we actually allowed to send to the peer.
 uint32_t getEffectiveSendMss(Tcb& b, TcpPacket& tcpP){
 
-  uint32_t messageSize = b.peerMss + 20;
+  uint32_t messageSize = b.peerMss + tcpMinHeaderLen;
   uint32_t mmsS = getMmsS();
   if(mmsS < messageSize) messageSize = mmsS;
   
@@ -269,6 +269,22 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
   return Status();
 }
 
+
+void checkAndSetMSS(Tcb& b, TcpPacket& tcpP){
+
+  for(auto i = tcpP.optionList.begin(); i < tcpP.optionList.end(); i++){
+  
+    TcpOption o = *i;
+    if(o.kind == static_cast<uint8_t>(TcpOptionKind::mss)){
+    
+      uint16_t sentMss = toAltOrder<uint16_t>(unloadBytes<uint16_t>(o.data,0));
+      b.peerMss = sentMss;
+      break;
+    }
+  }
+
+}
+
 Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
 
   IpPacket& ipP = se.ipPacket;
@@ -294,6 +310,7 @@ Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
       return Status(c, RemoteStatus::BadPacketTcp);
     }
     
+    checkAndSetMSS(b, tcpP);
     
     pickRealIsn(b);
     tcpP.irs = tcpP.getSeqNum();
@@ -364,6 +381,8 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     b.sWl1 = seqN;
     b.rNxt = seqN + 1; // only syn is processed, other control or data is processed in further states
     b.irs = seqN;
+    
+    checkAndSetMSS(b, tcpP);
   
     if(tcpP.getFlag(TcpPacketFlags::ack)){
       //standard connection attempt

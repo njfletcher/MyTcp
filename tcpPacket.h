@@ -19,13 +19,14 @@ class TcpOption{
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
     uint16_t getSize();
-  private:
     uint16_t calcSize();
+    
     uint16_t size;
     uint8_t kind;
     uint8_t length;
     bool hasLength; 
     std::vector<uint8_t> data;
+
 };
 
 enum class TcpPacketFlags{
