@@ -216,6 +216,8 @@ Status ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
       return Status();
     }
     
+    pickRealIsn(b);
+    
     LocalStatus ls = sendSyn(socket, b, b.lP, b.rP, false);
     if(ls == LocalStatus::Success){
       b.sUna = b.iss;
@@ -953,6 +955,83 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 }
 
 
+Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
+
+  if(b.rP.first == Unspecified || b.rP.second == Unspecified){
+    notifyApp(b, TcpCode::ActiveUnspec);
+    return Status();
+  }
+  
+  pickRealIsn(b); 
+  
+  LocalStatus ls = sendSyn(socket, b, b.lP, b.rP, false);
+  if(ls == LocalStatus::Success){
+    b.sUna = b.iss;
+    b.sNxt = b.iss + 1;
+    b.passiveOpen = false;
+    b.currentState = SynSentS();
+    int sendBufferSize = b.sendBufferByteCount + se.data.size();
+    if(sendBufferSize < sendBufferMax){
+      b.sendBufferByteCount = sendBufferSize;
+      b.sendBuffer.push(se); // save for later processing in established state.
+    }
+    else notifyApp(b, TcpCode::Resources);
+    
+  }
+  
+  return Status(ls);
+  
+}
+
+Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
+
+  int sendBufferSize = b.sendBufferByteCount + se.data.size();
+  if(sendBufferSize < sendBufferMax){
+    b.sendBufferByteCount = sendBufferSize;
+    b.sendBuffer.push(se); // save for later processing in established state.
+  }
+  else notifyApp(b, TcpCode::Resources);
+
+  return Status();
+
+}
+
+Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
+
+  int sendBufferSize = b.sendBufferByteCount + se.data.size();
+  if(sendBufferSize < sendBufferMax){
+    b.sendBufferByteCount = sendBufferSize;
+    b.sendBuffer.push(se); // save for later processing in established state.
+  }
+  else notifyApp(b, TcpCode::Resources);
+
+  return Status();
+
+}
+
+Status FinWait1S::processEvent(int socket, Tcb& b, SendEv& oe){
+  notifyApp(b, TcpCode::ConnClosing);
+  return Status();
+}
+Status FinWait2S::processEvent(int socket, Tcb& b, SendEv& oe){
+  notifyApp(b, TcpCode::ConnClosing);
+  return Status();
+}
+Status ClosingS::processEvent(int socket, Tcb& b, SendEv& oe){
+  notifyApp(b, TcpCode::ConnClosing);
+  return Status();
+}
+Status LastAckS::processEvent(int socket, Tcb& b, SendEv& oe){
+  notifyApp(b, TcpCode::ConnClosing);
+  return Status();
+}
+Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
+  notifyApp(b, TcpCode::ConnClosing);
+  return Status();
+}
+
+
+
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -1110,13 +1189,26 @@ void removeConn(Tcb& b){
   
 }
 
-/*
-open
-models the open action for the application interface
-creates connection and kicks off handshake(if active open)
-returns negative code for error or a unique identifier analogous to a file descriptor.
-*/
-int open(bool passive, LocalPair lP, RemotePair rP){
+
+Status send(int appId, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
+
+  SendEv ev;
+  ev.urgent = urgent;
+  ev.data = data;
+  
+  if(connections.contains(lP)){
+    if(connections[lP].contains(rP){
+      Tcb& oldConn = connections[lP][rP];
+      return oldConn.currentState.processEvent(socket, oldConn, ev); 
+    }
+  }  
+  
+  notifyApp(appId, TcpCode::NoConnExists);
+  return Status();
+
+}
+
+Status open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId){
 
   OpenEv ev;
   ev.passive = passive;
@@ -1137,7 +1229,10 @@ int open(bool passive, LocalPair lP, RemotePair rP){
       lP.second = chosenPort;
       newConn.lP = lP;
     }
-    else return static_cast<int>(Code::Resources);
+    else{
+      notifyApp(appId, TcpCode::Resources);
+      return Status();
+    }
   }
   if(lP.first == Unspecified){
     uint32_t chosenAddr = pickDynAddr(); 
@@ -1149,7 +1244,7 @@ int open(bool passive, LocalPair lP, RemotePair rP){
     //duplicate connection
     if(connections[lP].contains(rP){
       Tcb& oldConn = connections[lP][rP];
-      return static_cast<int>(oldConn.currentState.processEvent(socket, oldConn, ev); 
+      return oldConn.currentState.processEvent(socket, oldConn, ev); 
     }
   }
   else connections[lP] = new unordered_map<RemotePair, Tcb>();
@@ -1157,7 +1252,10 @@ int open(bool passive, LocalPair lP, RemotePair rP){
   int id = pickId(s);
   pair p(LocalPair,RemotePair);
   if(id >= 0) idMap[id] = p;
-  else return static_cast<int>(Code::Resources);
+  else{
+    notifyApp(appId,TcpCode::Resources);
+    return Status();
+  }
     
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
@@ -1171,7 +1269,7 @@ int open(bool passive, LocalPair lP, RemotePair rP){
     }
     else{
       reclaimId(id);
-      return Code::RawSend;
+      return Status(ls);
     }
 
     
@@ -1179,7 +1277,8 @@ int open(bool passive, LocalPair lP, RemotePair rP){
   
   newConn.id = id;
   connections[lP][rP] = newConn;
-  return id;
+  createdId = id;
+  return Status();
   
 }
 
