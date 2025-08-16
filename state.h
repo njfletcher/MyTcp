@@ -74,6 +74,7 @@ class SendEv: public Event{
   public:
     vector<uint8_t> data;
     bool urgent;
+    uint32_t bytesRead = 0;
 };
 
 class Tcb{

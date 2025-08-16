@@ -182,6 +182,15 @@ LocalStatus sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, 
   
 }
 
+//assumes seq num, data, urgPointer and urgFlag have already been set
+LocalStatus sendDataPacket(int socket, Tcb& b, TcpPacket& p){
+
+ p.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setAck(b.rNxt).setWindow(b.rWnd).setOptions(vector<TcpOption>{}).setRealChecksum(b.lP.first, b.rP.first);
+      
+  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  return ls;
+}
+
 LocalStatus sendCurrentAck(int socket, Tcb& b){
 
   TcpPacket sPacket;
@@ -1024,21 +1033,71 @@ Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
 
   uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
-  bool nonUrgentDataPresent = false;
   TcpPacket sendPacket;
-  while(!b.sendBuffer.empty()){
-      SendEv sendData = b.sendBuffer.front();
+  sendPacket.setSeqNum(b.sNxt);
+  bool sendMoreData = true;
+  while(!b.sendBuffer.empty() && sendMoreData){
+      SendEv& ev = b.sendBuffer.front();
       //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
-      if(sendData.urgent && nonUrgentDataPresent){
+      if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
          //send finished packet
+         LocalStatus ls = sendDataPacket(socket,b,sendPacket);
          sendPacket = TcpPacket{};
-         nonUrgentDataPresent = false;
+         sendPacket.setSeqNum(b.sNxt);
       }
-      uint32_t upperBound = min({effSendMSS,static_cast<uint32_t>(sendData.size()),(b.sUna + b.sWnd) - b.sNxt);
-      for(uint32_t i =0; i < upperBound; i++){
+     
+      uint32_t bytesRead = ev.bytesRead;
+      bool sendMorePackets = true;
+      while(sendMorePackets){
+          uint32_t windowRoom = (b.sUna + b.sWnd) - b.sNxt;
+          uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
+          uint32_t packetRoom = effSendMSS - sendPacket.payload.size();
+          uint32_t upperBound = min({packetRoom, dataRoom, windowRoom});
+          for(uint32_t i = 0; i < upperBound; i++){
+              sendPacket.payload.push_back(ev.data[bytesRead+i]);
+              b.sNxt++;
+              bytesRead++;
+          }
+          b.sendBufferByteCount -= bytesRead;
           
-      
+          if(ev.urgent){
+              sendPacket.setFlag(TcpPacketFlags::urg);
+              sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
+          }
+          
+          if(upperBound == dataRoom){
+              sendMorePackets = false;
+              b.sendBuffer.pop();
+          }
+          else{
+              ev.bytesRead = bytesRead;
+          }
+          
+          //peers window is filled up, sending more data would just get it rejected or dropped.
+          //there might be partial data left in this data send buffer chunk
+          if(upperBound == windowRoom){
+              sendMorePackets = false;
+              sendMoreData = false;
+              LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+              sendPacket = TcpPacket{};
+              sendPacket.setSeqNum(b.sNxt);
+              
+          }
+          else{
+              if(upperBound == packetRoom){
+                  LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+                  sendPacket = TcpPacket{};
+                  sendPacket.setSeqNum(b.sNxt);
+              }
+              
+          
+          }
+
       }
+      //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
+      //might have a partially filled packet to start with
+      if
+      
       
   
   }
