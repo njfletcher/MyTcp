@@ -17,6 +17,7 @@
 #include <poll.h>
 #include <climits>
 #include <functional>
+#include <algorithm>
 
 using namespace std;
 
@@ -114,13 +115,24 @@ uint32_t getMSSValue(uint32_t destAddr){
 }
 
 //effective send mss: how much tcp data are we actually allowed to send to the peer.
-uint32_t getEffectiveSendMss(Tcb& b, TcpPacket& tcpP){
+uint32_t getEffectiveSendMss(Tcb& b, vector<TcpOption> optionList){
+
+  uint32_t optionListByteCount = 0;
+  for(auto i = optionList.begin(); i < optionList.end(); i++){
+    TcpOption o = *i;
+    optionListByteCount++; //kind byte
+    if(o.hasLength){
+      optionListByteCount++;
+    }
+    optionListByteCount += o.data.size();
+    
+  }
 
   uint32_t messageSize = b.peerMss + tcpMinHeaderLen;
   uint32_t mmsS = getMmsS();
   if(mmsS < messageSize) messageSize = mmsS;
   
-  return messageSize - tcpP.getOptionListByteCount() - tcpMinHeaderLen; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
+  return messageSize - optionListByteCount - tcpMinHeaderLen; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
 }
 
 
@@ -998,6 +1010,40 @@ Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
 
 Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 
+  int sendBufferSize = b.sendBufferByteCount + se.data.size();
+  if(sendBufferSize < sendBufferMax){
+    b.sendBufferByteCount = sendBufferSize;
+    b.sendBuffer.push(se); // save for later processing in established state.
+  }
+  else notifyApp(b, TcpCode::Resources);
+
+  return Status();
+
+}
+
+Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
+
+  uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
+  bool nonUrgentDataPresent = false;
+  TcpPacket sendPacket;
+  while(!b.sendBuffer.empty()){
+      SendEv sendData = b.sendBuffer.front();
+      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
+      if(sendData.urgent && nonUrgentDataPresent){
+         //send finished packet
+         sendPacket = TcpPacket{};
+         nonUrgentDataPresent = false;
+      }
+      uint32_t upperBound = min({effSendMSS,static_cast<uint32_t>(sendData.size()),(b.sUna + b.sWnd) - b.sNxt);
+      for(uint32_t i =0; i < upperBound; i++){
+          
+      
+      }
+      
+  
+  }
+  
+  TcpPacket
   int sendBufferSize = b.sendBufferByteCount + se.data.size();
   if(sendBufferSize < sendBufferMax){
     b.sendBufferByteCount = sendBufferSize;

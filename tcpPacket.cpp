@@ -109,23 +109,6 @@ TcpPacket::TcpPacket(){
   setDataOffset(defaultTcpDataOffset);
 }
 
-uint32_t TcpPacket::getOptionListByteCount(){
-  uint32_t num = 0;
-  for(auto i = optionList.begin(); i < optionList.end(); i++){
-    TcpOption o = *i;
-    num = num + 1; //kind byte
-    if(o.hasLength){
-      num = num + 1;
-    }
-    num = num + o.data.size();
-    
-  }
-  return num;
-}
-
-
-
-
 TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
   
   uint16_t accum = 0;
