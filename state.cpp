@@ -1004,113 +1004,168 @@ Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
   
 }
 
-Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
+
+bool addToSendBuffer(Tcb& b, SendEv& se){
 
   int sendBufferSize = b.sendBufferByteCount + se.data.size();
   if(sendBufferSize < sendBufferMax){
-    b.sendBufferByteCount = sendBufferSize;
-    b.sendBuffer.push(se); // save for later processing in established state.
+      b.sendBufferByteCount = sendBufferSize;
+      b.sendBuffer.push(se);
+      return true;
   }
-  else notifyApp(b, TcpCode::Resources);
+  else{
+      notifyApp(b, TcpCode::Resources);
+      return false;
+  }
+  
+}
 
-  return Status();
+Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
+
+    addToSendBuffer(b,se);
+    return Status();
 
 }
 
 Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 
-  int sendBufferSize = b.sendBufferByteCount + se.data.size();
-  if(sendBufferSize < sendBufferMax){
-    b.sendBufferByteCount = sendBufferSize;
-    b.sendBuffer.push(se); // save for later processing in established state.
-  }
-  else notifyApp(b, TcpCode::Resources);
+    addToSendBuffer(b,se);
+    return Status();
 
-  return Status();
+}
+
+LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, bool& cont){
+
+    uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
+    SendEv& ev = b.sendBuffer.front();
+
+    //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
+    if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
+        //send finished packet
+        LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+        if(ls != LocalStatus::Success){
+            return ls;
+        }
+        sendPacket = TcpPacket{};
+        sendPacket.setSeqNum(b.sNxt);
+    }
+     
+    uint32_t bytesRead = ev.bytesRead;
+    bool sendMorePackets = true;
+    while(sendMorePackets){
+        uint32_t windowRoom = (b.sUna + b.sWnd) - b.sNxt;
+        uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
+        uint32_t packetRoom = effSendMSS - sendPacket.payload.size();
+        uint32_t upperBound = min({packetRoom, dataRoom, windowRoom});
+        for(uint32_t i = 0; i < upperBound; i++){
+            sendPacket.payload.push_back(ev.data[bytesRead+i]);
+            b.sNxt++;
+            bytesRead++;
+        }
+
+        if(ev.urgent){
+            sendPacket.setFlag(TcpPacketFlags::urg);
+            sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
+        }
+        if(upperBound == dataRoom){
+            sendMorePackets = false;
+            b.sendBuffer.pop();
+            b.sendBufferByteCount -= ev.data.size();
+        }
+        else{
+            ev.bytesRead = bytesRead;
+        }
+          
+        //peers window is filled up, sending more data would just get it rejected or dropped.
+        //there might be partial data left in this data send buffer chunk
+        if(upperBound == windowRoom){
+            sendMorePackets = false;
+            cont = false;
+            LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+            if(ls != LocalStatus::Success){
+                return ls;
+            }
+            sendPacket = TcpPacket{};
+            sendPacket.setSeqNum(b.sNxt);
+              
+        }
+        else{
+            if(upperBound == packetRoom){
+                LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+                sendPacket = TcpPacket{};
+                sendPacket.setSeqNum(b.sNxt);
+            }
+              
+          
+        }
+
+    }
+
+    return LocalStatus::Success;
 
 }
 
 Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
 
-  uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
   TcpPacket sendPacket;
   sendPacket.setSeqNum(b.sNxt);
   bool sendMoreData = true;
   while(!b.sendBuffer.empty() && sendMoreData){
-      SendEv& ev = b.sendBuffer.front();
-      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
-      if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
-         //send finished packet
-         LocalStatus ls = sendDataPacket(socket,b,sendPacket);
-         sendPacket = TcpPacket{};
-         sendPacket.setSeqNum(b.sNxt);
+      LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+      if(ls != LocalStatus::Success){
+          return Status(ls);
       }
-     
-      uint32_t bytesRead = ev.bytesRead;
-      bool sendMorePackets = true;
-      while(sendMorePackets){
-          uint32_t windowRoom = (b.sUna + b.sWnd) - b.sNxt;
-          uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
-          uint32_t packetRoom = effSendMSS - sendPacket.payload.size();
-          uint32_t upperBound = min({packetRoom, dataRoom, windowRoom});
-          for(uint32_t i = 0; i < upperBound; i++){
-              sendPacket.payload.push_back(ev.data[bytesRead+i]);
-              b.sNxt++;
-              bytesRead++;
+  }
+        
+  //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
+  //might have a partially filled packet to start with
+  if(sendMoreData){
+      bool added = addToSendBuffer(b,se);
+      if(added){
+          LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+          if(ls != LocalStatus::Success){
+              return Status(ls);
           }
-          b.sendBufferByteCount -= bytesRead;
-          
-          if(ev.urgent){
-              sendPacket.setFlag(TcpPacketFlags::urg);
-              sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
-          }
-          
-          if(upperBound == dataRoom){
-              sendMorePackets = false;
-              b.sendBuffer.pop();
-          }
-          else{
-              ev.bytesRead = bytesRead;
-          }
-          
-          //peers window is filled up, sending more data would just get it rejected or dropped.
-          //there might be partial data left in this data send buffer chunk
-          if(upperBound == windowRoom){
-              sendMorePackets = false;
-              sendMoreData = false;
-              LocalStatus ls = sendDataPacket(socket,b,sendPacket);
-              sendPacket = TcpPacket{};
-              sendPacket.setSeqNum(b.sNxt);
-              
-          }
-          else{
-              if(upperBound == packetRoom){
-                  LocalStatus ls = sendDataPacket(socket,b,sendPacket);
-                  sendPacket = TcpPacket{};
-                  sendPacket.setSeqNum(b.sNxt);
-              }
-              
-          
-          }
-
       }
-      //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
-      //might have a partially filled packet to start with
-      if
       
-      
-  
+  }
+  else{
+      addToSendBuffer(b,se);
   }
   
-  TcpPacket
-  int sendBufferSize = b.sendBufferByteCount + se.data.size();
-  if(sendBufferSize < sendBufferMax){
-    b.sendBufferByteCount = sendBufferSize;
-    b.sendBuffer.push(se); // save for later processing in established state.
-  }
-  else notifyApp(b, TcpCode::Resources);
+  return Status{};
 
-  return Status();
+}
+
+Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
+
+  TcpPacket sendPacket;
+  sendPacket.setSeqNum(b.sNxt);
+  bool sendMoreData = true;
+  while(!b.sendBuffer.empty() && sendMoreData){
+      LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+      if(ls != LocalStatus::Success){
+          return Status(ls);
+      }
+  }
+        
+  //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
+  //might have a partially filled packet to start with
+  if(sendMoreData){
+      bool added = addToSendBuffer(b,se);
+      if(added){
+          LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+          if(ls != LocalStatus::Success){
+              return Status(ls);
+          }
+      }
+      
+  }
+  else{
+      addToSendBuffer(b,se);
+  }
+  
+  return Status{};
 
 }
 
@@ -1134,8 +1189,6 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
   return Status();
 }
-
-
 
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
