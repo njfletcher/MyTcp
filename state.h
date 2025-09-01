@@ -11,6 +11,7 @@
 #define dynPortEnd 65535
 #define recBufferMax 500
 #define sendBufferMax 500
+#define eventBufferMax 200
 #define defaultMSS 536 // maximum segment size
 
 typedef pair<uint32_t, uint16_t> LocalPair;
@@ -67,14 +68,17 @@ class SegmentEv : public Event{
   public:
     IpPacket& ipPacket;
 };
-class FurtherProcEv: public Event{
-};
 
 class SendEv: public Event{
   public:
     vector<uint8_t> data;
     bool urgent;
     uint32_t bytesRead = 0;
+};
+
+class ReceiveEv: public Event{
+  public:
+    uint32_t amount;
 };
 
 class Tcb{
@@ -106,18 +110,18 @@ class Tcb{
     uint32_t irs = 0; // initial sequence number chosen by peer for their data.
     
     uint32_t maxSWnd = 0;
-    //pointer to place in buffer where app has not consumed yet.
-    uint16_t appNewData = 0;
+    
+    //seq num of data where app has not consumed yet.
+    uint32_t appNewData = 0;
     bool urgentSignaled = false;
     
     //16 bits to match ip packet 16 bit length field.
     uint16_t peerMss = defaultMSS;
     uint16_t myMss = defaultMSS;
     
-    unordered_map<uint32_t, IpPacket> waitingPackets;
+    std::queue<Event> eventQueue;
     
     std::queue<uint8_t> recBuffer;
-    
     std::queue<SendEv> sendBuffer;
     int sendBufferByteCount = 0;
     
@@ -133,6 +137,7 @@ class State{
     virtual Status processEvent(int socket, Tcb& b, OpenEv& oe);
     virtual Status processEvent(int socket, Tcb& b, SegmentEv& se);
     virtual Status processEvent(int socket, Tcb& b, SendEv& se);
+    virtual Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 
 };
 
@@ -141,6 +146,7 @@ class ListenS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class SynSentS : State{
@@ -148,6 +154,7 @@ class SynSentS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class SynRecS : State{
@@ -155,6 +162,7 @@ class SynRecS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class EstabS : State{

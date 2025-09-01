@@ -336,8 +336,9 @@ Status ListenS::processEvent(int socket, Tcb& b, SegmentEv& se){
     checkAndSetMSS(b, tcpP);
     
     pickRealIsn(b);
-    tcpP.irs = tcpP.getSeqNum();
-    tcpP.rNxt = tcpP.getSeqNum() + 1;
+    b.irs = tcpP.getSeqNum();
+    b.appNewData = b.irs;
+    b.rNxt = tcpP.getSeqNum() + 1;
       
     LocalStatus ls = sendSyn(socket, b, b.lP, recPair, true);
     if(ls == LocalStatus::Success){
@@ -404,7 +405,7 @@ Status SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se){
     b.sWl1 = seqN;
     b.rNxt = seqN + 1; // only syn is processed, other control or data is processed in further states
     b.irs = seqN;
-    
+    b.appNewData = b.irs;
     checkAndSetMSS(b, tcpP);
   
     if(tcpP.getFlag(TcpPacketFlags::ack)){
@@ -580,7 +581,7 @@ Status establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP){
 Status checkUrg(Tcb&b, TcpPacket& tcpP){
 
   if(tcpP.getFlag(TcpPacketFlags::urg)){
-    uint32_t segUp = tcpP.getUrg();
+    uint32_t segUp = tcpP.getSeqNum() + tcpP.getUrg();
     if(b.rUp < segUp) b.rUp = segUp;
     if((b.rUp >= b.appNewData) && !b.urgentSignaled){
       notifyApp(TcpCode::UrgentData);
@@ -1190,6 +1191,39 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
   return Status();
 }
 
+bool addToEventQueue(Tcb& b, Event& e){
+  if(b.eventQueue.size() < eventBufferMax){
+      b.eventQueue.push(e);
+      return true;
+  }
+  else{
+      notifyApp(b, TcpCode::Resources);
+      return false;
+  }
+  
+}
+
+Status ListenS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+    addToEventQueue(b,e);
+    return Status();
+
+}
+
+Status SynSentS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+    addToEventQueue(b,e);
+    return Status();
+
+}
+
+Status SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+    addToEventQueue(b,e);
+    return Status();
+
+}
+
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
@@ -1353,6 +1387,23 @@ Status send(int appId, bool urgent, vector<uint8_t>& data, LocalPair lP, RemoteP
   SendEv ev;
   ev.urgent = urgent;
   ev.data = data;
+  
+  if(connections.contains(lP)){
+    if(connections[lP].contains(rP){
+      Tcb& oldConn = connections[lP][rP];
+      return oldConn.currentState.processEvent(socket, oldConn, ev); 
+    }
+  }  
+  
+  notifyApp(appId, TcpCode::NoConnExists);
+  return Status();
+
+}
+
+Status receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP){
+
+  ReceiveEv ev;
+  ev.amount = amount;
   
   if(connections.contains(lP)){
     if(connections[lP].contains(rP){
