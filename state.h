@@ -9,9 +9,7 @@
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
 #define dynPortStart 49152
 #define dynPortEnd 65535
-#define recBufferMax 500
-#define sendBufferMax 500
-#define eventBufferMax 200
+#define orderedPacketBytesMax 500
 #define defaultMSS 536 // maximum segment size
 
 typedef pair<uint32_t, uint16_t> LocalPair;
@@ -79,6 +77,7 @@ class SendEv: public Event{
 class ReceiveEv: public Event{
   public:
     uint32_t amount;
+    vector<uint8_t> providedBuffer;
 };
 
 class Tcb{
@@ -114,27 +113,29 @@ class Tcb{
     //seq num of data where app has not consumed yet.
     uint32_t appNewData = 0;
     bool urgentSignaled = false;
+    bool pushSeen = false;
     
     //16 bits to match ip packet 16 bit length field.
     uint16_t peerMss = defaultMSS;
     uint16_t myMss = defaultMSS;
+        
+    std::queue<TcpPacket> orderedPackets;
+    int orderedPacketByteCount = 0;
     
-    std::queue<Event> eventQueue;
+    std::queue<SendEv> sendQueue;
+    int sendQueueByteCount = 0;
     
-    std::queue<uint8_t> recBuffer;
-    std::queue<SendEv> sendBuffer;
-    int sendBufferByteCount = 0;
-    
-    State& currentState;
-    
-    bool passiveOpen = false;
+
+    passiveOpen = false;
   
 };
 
 
 class State{
+  
   public:
-    virtual Status processEvent(int socket, Tcb& b, OpenEv& oe);
+    virSendEvStsendprocessEv
+    ent(int socket, Tcb& b, OpenEv& oe);
     virtual Status processEvent(int socket, Tcb& b, SegmentEv& se);
     virtual Status processEvent(int socket, Tcb& b, SendEv& se);
     virtual Status processEvent(int socket, Tcb& b, ReceiveEv& se);

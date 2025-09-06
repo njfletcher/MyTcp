@@ -451,7 +451,7 @@ Status checkSequenceNum(int socket, Tcb& b, TcpPacket& tcpP){
   return Status();
 }
 
-Status checkSaveForLater(Tcb&b, IpPacket& ipP){
+/*Status checkSaveForLater(Tcb&b, IpPacket& ipP){
 
   uint32_t seqNum = tcpP.getSeqNum();
   //SHLD 31 packet in window but not the expected one should be held for later processing.
@@ -460,7 +460,7 @@ Status checkSaveForLater(Tcb&b, IpPacket& ipP){
     return Status();
   }
 
-}
+}*/
 
 Status checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
 
@@ -599,13 +599,13 @@ Status processData(int socket, Tcb&b, TcpPacket& tcpP){
   //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
   size_t beginUnProc = b.rNxt - seqNum;
   size_t index = beginUnProc;
-  while((b.recBuffer.size() < recBufferMax) && (index < tcpP.payload.size())){
+  while((b.orderedPacketByteCount < orderedPacketBytesMax) && (index < tcpP.payload.size())){
     b.recBuffer.push(tcpP.payload[index]);
     index++;
   }
 
   if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
-    notifyApp(b, TcpCode::PushData);
+    b.push
   }
   
   uint32_t oldRightEdge = b.rNxt + b.rWnd;
@@ -977,6 +977,21 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 }
 
 
+bool addToSendQueue(Tcb& b, SendEv& se){
+
+  int sendQueueSize = b.sendQueueByteCount + se.data.size();
+  if(sendQueueSize < sendQueueMax){
+      b.sendQueueByteCount = sendQueueSize;
+      b.sendQueue.push(se);
+      return true;
+  }
+  else{
+      notifyApp(b, TcpCode::Resources);
+      return false;
+  }
+  
+}
+
 Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 
   if(b.rP.first == Unspecified || b.rP.second == Unspecified){
@@ -992,13 +1007,7 @@ Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
     b.sNxt = b.iss + 1;
     b.passiveOpen = false;
     b.currentState = SynSentS();
-    int sendBufferSize = b.sendBufferByteCount + se.data.size();
-    if(sendBufferSize < sendBufferMax){
-      b.sendBufferByteCount = sendBufferSize;
-      b.sendBuffer.push(se); // save for later processing in established state.
-    }
-    else notifyApp(b, TcpCode::Resources);
-    
+    addToSendQueue(b,se);
   }
   
   return Status(ls);
@@ -1006,31 +1015,17 @@ Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 }
 
 
-bool addToSendBuffer(Tcb& b, SendEv& se){
-
-  int sendBufferSize = b.sendBufferByteCount + se.data.size();
-  if(sendBufferSize < sendBufferMax){
-      b.sendBufferByteCount = sendBufferSize;
-      b.sendBuffer.push(se);
-      return true;
-  }
-  else{
-      notifyApp(b, TcpCode::Resources);
-      return false;
-  }
-  
-}
 
 Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
 
-    addToSendBuffer(b,se);
+    addToSendQueue(b,se);
     return Status();
 
 }
 
 Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 
-    addToSendBuffer(b,se);
+    addToSendQueue(b,se);
     return Status();
 
 }
@@ -1038,7 +1033,7 @@ Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, bool& cont){
 
     uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
-    SendEv& ev = b.sendBuffer.front();
+    SendEv& ev = b.sendQueue.front();
 
     //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
     if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
@@ -1070,8 +1065,8 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
         }
         if(upperBound == dataRoom){
             sendMorePackets = false;
-            b.sendBuffer.pop();
-            b.sendBufferByteCount -= ev.data.size();
+            b.sendQueue.pop();
+            b.sendQueueByteCount -= ev.data.size();
         }
         else{
             ev.bytesRead = bytesRead;
@@ -1111,7 +1106,7 @@ Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
   TcpPacket sendPacket;
   sendPacket.setSeqNum(b.sNxt);
   bool sendMoreData = true;
-  while(!b.sendBuffer.empty() && sendMoreData){
+  while(!b.sendQueue.empty() && sendMoreData){
       LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
       if(ls != LocalStatus::Success){
           return Status(ls);
@@ -1121,7 +1116,7 @@ Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
   //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
   //might have a partially filled packet to start with
   if(sendMoreData){
-      bool added = addToSendBuffer(b,se);
+      bool added = addToSendQueue(b,se);
       if(added){
           LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
           if(ls != LocalStatus::Success){
@@ -1131,7 +1126,7 @@ Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
       
   }
   else{
-      addToSendBuffer(b,se);
+      addToSendQueue(b,se);
   }
   
   return Status{};
@@ -1143,7 +1138,7 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
   TcpPacket sendPacket;
   sendPacket.setSeqNum(b.sNxt);
   bool sendMoreData = true;
-  while(!b.sendBuffer.empty() && sendMoreData){
+  while(!b.sendQueue.empty() && sendMoreData){
       LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
       if(ls != LocalStatus::Success){
           return Status(ls);
@@ -1153,7 +1148,7 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
   //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
   //might have a partially filled packet to start with
   if(sendMoreData){
-      bool added = addToSendBuffer(b,se);
+      bool added = addToSendQueue(b,se);
       if(added){
           LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
           if(ls != LocalStatus::Success){
@@ -1163,7 +1158,7 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
       
   }
   else{
-      addToSendBuffer(b,se);
+      addToSendQueue(b,se);
   }
   
   return Status{};
@@ -1191,9 +1186,9 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
   return Status();
 }
 
-bool addToEventQueue(Tcb& b, Event& e){
-  if(b.eventQueue.size() < eventBufferMax){
-      b.eventQueue.push(e);
+bool addToRecQueue(Tcb& b, Event& e){
+  if(b.recQueue.size() < recQueueMax){
+      b.recQueue.push(e);
       return true;
   }
   else{
@@ -1205,21 +1200,34 @@ bool addToEventQueue(Tcb& b, Event& e){
 
 Status ListenS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-    addToEventQueue(b,e);
+    addToRecQueue(b,e);
     return Status();
 
 }
 
 Status SynSentS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-    addToEventQueue(b,e);
+    addToRecQueue(b,e);
     return Status();
 
 }
 
 Status SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-    addToEventQueue(b,e);
+    addToRecQueue(b,e);
+    return Status();
+
+}
+
+Status EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+    if(b.recBuffer.size() >= e.amount){
+      for(int i =0; i < e.amount; i++){
+        b.recBuffer.pop();
+      }
+    }
+    else{
+    addToRecQueue(b,e);
     return Status();
 
 }
