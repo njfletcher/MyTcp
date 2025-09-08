@@ -597,21 +597,26 @@ Status processData(int socket, Tcb&b, TcpPacket& tcpP){
   //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
   //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
   //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
-  size_t beginUnProc = b.rNxt - seqNum;
-  size_t index = beginUnProc;
-  while((b.orderedPacketByteCount < orderedPacketBytesMax) && (index < tcpP.payload.size())){
-    b.recBuffer.push(tcpP.payload[index]);
-    index++;
+  
+  if(seqNum != arrangedSegments.back().seqNum){
+    TcpSegmentSlice newSlice;
+    newSlice.push == tcpP.getFlag(TcpPacketFlags::psh);
+    newSlice.seqNum = seqNum;
+    arrangedSegments.push_back(newSlice);
   }
-
-  if(index != 0 && (index == tcpP.payload.size()) && tcpP.getFlag(TcpPacketFlags::psh)){
-    b.push
+  
+  uint32_t beginUnProc = static_cast<uint32_t>(b.rNxt - seqNum);
+  uint32_t index = beginUnProc;
+  while((b.arrangedSegmentsByteCount < arrangedSegmentsBytesMax) && (index < static_cast<uint32_t>(tcpP.payload.size()))){
+    b.arrangedSegments.back().push_back(tcpP.payload[index]);
+    index++;
+    b.arrangedSegmentsByteCount++;
   }
   
   uint32_t oldRightEdge = b.rNxt + b.rWnd;
   b.rNxt = b.rNxt + (index - beginUnProc);
   uint32_t leastWindow = oldRightEdge - b.rNxt;
-  uint32_t bufferAvail = recBufferMax - recBuffer.size();
+  uint32_t bufferAvail = arrangedSegmentsBytesMax - b.arrangedSegmentsByteCount;
   if(bufferAvail >= leastWindow) b.rWnd = bufferAvail;
   else b.rWnd = leastWindow; //TODO Window management suggestions s3.8
 

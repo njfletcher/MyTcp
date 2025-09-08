@@ -42,6 +42,14 @@ enum class TcpPacketFlags{
 };
 
 
+
+class TcpSegmentSlice{
+  public:
+    bool push;
+    uint32_t seqNum;
+    std::queue<uint8_t> unreadData;
+};
+
 class TcpPacket{
 
   public:
@@ -72,7 +80,7 @@ class TcpPacket{
     uint16_t getUrg();
     uint32_t getSegSize();
     uint16_t calcSize();
-    uint8_t getFlag(TcpPacketFlags flag);
+    bool getFlag(TcpPacketFlags flag);
     uint8_t getDataOffset();
     uint8_t getReserved();
     

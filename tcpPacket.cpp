@@ -154,8 +154,8 @@ TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddre
   return *this;
 }
 
-uint8_t TcpPacket::getFlag(TcpPacketFlags flag){
-  return (flags >> static_cast<int>(flag)) & 0x1;
+bool TcpPacket::getFlag(TcpPacketFlags flag){
+  return static_cast<bool>((flags >> static_cast<int>(flag)) & 0x1);
 }
 
 TcpPacket& TcpPacket::setFlag(TcpPacketFlags flag){

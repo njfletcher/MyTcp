@@ -9,7 +9,7 @@
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
 #define dynPortStart 49152
 #define dynPortEnd 65535
-#define orderedPacketBytesMax 500
+#define arrangedSegmentsBytesMax 500
 #define defaultMSS 536 // maximum segment size
 
 typedef pair<uint32_t, uint16_t> LocalPair;
@@ -119,8 +119,8 @@ class Tcb{
     uint16_t peerMss = defaultMSS;
     uint16_t myMss = defaultMSS;
         
-    std::queue<TcpPacket> orderedPackets;
-    int orderedPacketByteCount = 0;
+    std::deque<TcpSegmentSlice> arrangedSegments;
+    int arrangedSegmentsByteCount = 0;
     
     std::queue<SendEv> sendQueue;
     int sendQueueByteCount = 0;
