@@ -10,6 +10,8 @@
 #define dynPortStart 49152
 #define dynPortEnd 65535
 #define arrangedSegmentsBytesMax 500
+#define recQueueMax 500
+#define sendQueueBytesMax 500
 #define defaultMSS 536 // maximum segment size
 
 typedef pair<uint32_t, uint16_t> LocalPair;
@@ -122,6 +124,8 @@ class Tcb{
     std::deque<TcpSegmentSlice> arrangedSegments;
     int arrangedSegmentsByteCount = 0;
     
+    std::queue<ReceiveEv> recQueue;
+    
     std::queue<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     
@@ -171,6 +175,7 @@ class EstabS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class FinWait1S : State{
@@ -178,6 +183,7 @@ class FinWait1S : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class FinWait2S : State{
@@ -185,6 +191,7 @@ class FinWait2S : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class CloseWaitS : State{
@@ -192,6 +199,7 @@ class CloseWaitS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class ClosingS : State{
@@ -199,6 +207,7 @@ class ClosingS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class LastAckS : State{
@@ -206,6 +215,7 @@ class LastAckS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 class TimeWaitS : State{
@@ -213,6 +223,7 @@ class TimeWaitS : State{
     Status processEvent(int socket, Tcb& b, OpenEv& oe);
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
+    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
 };
 
 

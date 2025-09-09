@@ -985,7 +985,7 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se){
 bool addToSendQueue(Tcb& b, SendEv& se){
 
   int sendQueueSize = b.sendQueueByteCount + se.data.size();
-  if(sendQueueSize < sendQueueMax){
+  if(sendQueueSize < sendQueueBytesMax){
       b.sendQueueByteCount = sendQueueSize;
       b.sendQueue.push(se);
       return true;
@@ -1192,7 +1192,7 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
 }
 
 bool addToRecQueue(Tcb& b, Event& e){
-  if(b.recQueue.size() < recQueueMax){
+  if((b.recQueue.size() + 1) < recQueueMax){
       b.recQueue.push(e);
       return true;
   }
@@ -1224,18 +1224,139 @@ Status SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
 }
 
-Status EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+Status processRead(Tcb&b, ReceiveEv& e){
 
-    if(b.recBuffer.size() >= e.amount){
-      for(int i =0; i < e.amount; i++){
-        b.recBuffer.pop();
+    uint32_t readBytes = 0;
+    if(b.arrangedSegmentsByteCount >= e.amount){
+      while(readBytes < e.amount && !b.arrangedSegments.empty()){
+        TcpSegmentSlice& slice = b.arrangedSegments.front();
+        while(readBytes < e.amount){
+          e.providedBuffer.push_back(slice.unreadData.pop());
+          readBytes++;
+          b.arrangedSegmentsByteCount--;
+          appNewData++;
+        }
+        
+        if(slice.unreadData.size() == 0){
+          b.arrangedSegments.pop();
+          if(slice.push){
+            
+            b.pushSeen = true;
+          }
+        }
+        
+        
+      }
+      
+      if((b.rUp > b.appNewData){
+        if(!b.urgentSignaled){
+          notifyApp(TcpCode::UrgentData);
+          b.urgentSignaled = true;
+        }
+      }
+      else{
+        b.urgentSignaled = false;
+      
       }
     }
     else{
-    addToRecQueue(b,e);
+      addToRecQueue(b,e);
+    }
     return Status();
 
+
+
+
 }
+
+Status EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  return processRead(b,e);
+
+}
+
+Status FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  return processRead(b,e);
+
+}
+
+
+Status FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  return processRead(b,e);
+
+}
+
+Status CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+    if(b.arrangedSegmentsByteCount == 0){
+      notifyApp(TcpCode::ConnClosing);
+      return Status();
+    
+    }
+
+    uint32_t readBytes = 0;
+    uint32_t upperBound = b.arrangedSegmentsByteCount;
+    if(upperBound > e.amount){
+      upperBound = e.amount;
+    }
+    while(readBytes < upperBound && !b.arrangedSegments.empty()){
+      TcpSegmentSlice& slice = b.arrangedSegments.front();
+      while(readBytes < upperBound){
+        e.providedBuffer.push_back(slice.unreadData.pop());
+        readBytes++;
+        b.arrangedSegmentsByteCount--;
+        appNewData++;
+      }
+        
+      if(slice.unreadData.size() == 0){
+        b.arrangedSegments.pop();
+        if(slice.push){
+          b.pushSeen = true;
+        }
+      }
+        
+        
+    }
+      
+    if((b.rUp > b.appNewData){
+      if(!b.urgentSignaled){
+        notifyApp(TcpCode::UrgentData);
+        b.urgentSignaled = true;
+      }
+    }
+    else{
+      b.urgentSignaled = false;
+      }
+  }
+    
+  return Status();
+
+}
+
+
+Status ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  notifyApp(TcpCode::ConnClosing);
+  return Status();
+
+}
+
+Status LastAckS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  notifyApp(TcpCode::ConnClosing);
+  return Status();
+
+}
+
+Status TimeWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+
+  notifyApp(TcpCode::ConnClosing);
+  return Status();
+
+}
+
 
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
@@ -1333,9 +1454,6 @@ int pickRealIsn(Tcb& block){
   return 0;
 }
 
-int verifyAck(uint32_t sUna, uint32_t sNxt, uint32_t ack){
-  return (ack > sUna) && (ack <= sNxt);
-}
 
 
 /*pickDynPort 
