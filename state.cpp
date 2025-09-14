@@ -88,6 +88,9 @@ void printTcpCode(TcpCode c){
     case TcpCode::ConnClosing:
       s += "connection closing";
       break;
+    case TcpCode::Closing:
+      s += "closing";
+      break;
     default:
       s += "unknown";
   }
@@ -97,7 +100,7 @@ void printTcpCode(TcpCode c){
 //TODO: write code and message to file somewhere
 //simulates passing a passing an info/error message to any hooked up applications.
 //also a way to log errors in the program/
-void notifyApp(Tcb&b, TcpCode c){
+void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
   return;
 }
 
@@ -197,6 +200,17 @@ LocalStatus sendCurrentAck(int socket, Tcb& b){
   vector<TcpOption> options;
   vector<uint8_t> data;
   sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+      
+  LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
+  return ls;
+}
+
+LocalStatus sendFin(int socket, Tcb& b){
+
+  TcpPacket sPacket;
+  vector<TcpOption> options;
+  vector<uint8_t> data;
+  sPacket.setFlag(TcpPacketFlags::fin).setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
   LocalStatus ls = sendPacket(socket,b.rP.first,sPacket);
   return ls;
@@ -1064,6 +1078,7 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
             bytesRead++;
         }
 
+        bool sendFin = false;
         if(ev.urgent){
             sendPacket.setFlag(TcpPacketFlags::urg);
             sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
@@ -1072,6 +1087,9 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
             sendMorePackets = false;
             b.sendQueue.pop();
             b.sendQueueByteCount -= ev.data.size();
+            if(b.sendQueue.empty() && !(b.closeQueue.empty())){
+              sendFin = true;
+            }
         }
         else{
             ev.bytesRead = bytesRead;
@@ -1082,7 +1100,7 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
         if(upperBound == windowRoom){
             sendMorePackets = false;
             cont = false;
-            LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+            LocalStatus ls = sendDataPacket(socket,b,sendPacket); 
             if(ls != LocalStatus::Success){
                 return ls;
             }
@@ -1092,6 +1110,7 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
         }
         else{
             if(upperBound == packetRoom){
+                if(sendFin) sendPacket.setFlag(TcpPacketFlags::fin);
                 LocalStatus ls = sendDataPacket(socket,b,sendPacket);
                 sendPacket = TcpPacket{};
                 sendPacket.setSeqNum(b.sNxt);
@@ -1357,6 +1376,113 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
 }
 
+Status ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
+
+  for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
+    ReceiveEv& rEv = *iter;
+    notifyApp(b,TcpCode::Closing,e.id);
+  }
+  removeConn(b);
+  return Status();
+}
+
+Status SynSentS::processEvent(int socket, Tcb& b, CloseEv& e){
+
+  for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
+    ReceiveEv& rEv = *iter;
+    notifyApp(b,TcpCode::Closing,rEv.id);
+  }
+  
+  for(auto iter = b.sendQueue.begin(); iter < b.sendQueue.end(); iter++){
+    SendEv& sEv = *iter;
+    notifyApp(b,TcpCode::Closing,sEv.id);
+  }
+  
+  removeConn(b);
+  return Status();
+}
+
+Status SynRecS::processEvent(int socket, Tcb& b, CloseEv& e){
+
+  if(b.sendQueue.empty()){
+    LocalStatus ls = sendFin(socket,b);
+    b.currentState = FinWait1S();
+    return Status(ls);
+  }
+  else{
+    b.closeQueue.push_back(e);
+    return Status();
+  }
+  
+}
+
+Status EstabS::processEvent(int socket, Tcb& b, CloseEv& e){
+
+  if(b.sendQueue.empty()){
+    LocalStatus ls = sendFin(socket,b);
+    b.currentState = FinWait1S();
+    return Status(ls);
+  }
+  else{
+    b.closeQueue.push_back(e);
+    b.currentState = FinWait1S();
+    return Status();
+  }
+  
+}
+
+Status FinWait1S::processEvent(int socket, Tcb& b, CloseEv& e){
+  notifyApp(b,TcpCode::ConnClosing, e.id);
+  return Status();
+}
+
+Status FinWait2S::processEvent(int socket, Tcb& b, CloseEv& e){
+  notifyApp(b,TcpCode::ConnClosing, e.id);
+  return Status();
+}
+
+Status CloseWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
+
+  if(b.sendQueue.empty()){
+    LocalStatus ls = sendFin(socket,b);
+    b.currentState = LastAckS();
+    return Status(ls);
+  }
+  else{
+    b.closeQueue.push_back(e);
+    b.currentState = LastAckS();
+    return Status();
+  }
+
+}
+
+Status ClosingS::processEvent(int socket, Tcb& b, CloseEv& e){
+  notifyApp(b,TcpCode::ConnClosing, e.id);
+  return Status();
+}
+
+Status LastAckS::processEvent(int socket, Tcb& b, CloseEv& e){
+  notifyApp(b,TcpCode::ConnClosing, e.id);
+  return Status();
+}
+
+Status TimeWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
+  notifyApp(b,TcpCode::ConnClosing, e.id);
+  return Status();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
@@ -1546,6 +1672,21 @@ Status receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair
   notifyApp(appId, TcpCode::NoConnExists);
   return Status();
 
+}
+
+Status close(int appId, LocalPair lP, RemotePair rP){
+
+  CloseEv ev;
+  
+  if(connections.contains(lP)){
+    if(connections[lP].contains(rP){
+      Tcb& oldConn = connections[lP][rP];
+      return oldConn.currentState.processEvent(socket, oldConn, ev); 
+    }
+  }  
+  
+  notifyApp(appId, TcpCode::NoConnExists);
+  return Status();
 }
 
 Status open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId){

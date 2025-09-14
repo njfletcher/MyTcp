@@ -55,10 +55,15 @@ enum class TcpCode{
   ConnClosing = -25,
   UrgentData = -26,
   PushData = -27,
-  NoConnExists = -28
+  NoConnExists = -28,
+  Closing = -29
 };
 
-class Event{};
+class Event{
+
+  public:
+    uint32_t id;
+};
 
 class OpenEv : public Event{
   public:
@@ -81,6 +86,8 @@ class ReceiveEv: public Event{
     uint32_t amount;
     vector<uint8_t> providedBuffer;
 };
+
+class CloseEv: public Event{};
 
 class Tcb{
 
@@ -129,7 +136,9 @@ class Tcb{
     std::queue<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     
-
+    std::queue<CloseEv> closeQueue;
+    
+    State currentState;
     passiveOpen = false;
   
 };
