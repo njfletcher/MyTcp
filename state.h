@@ -89,6 +89,8 @@ class ReceiveEv: public Event{
 
 class CloseEv: public Event{};
 
+class AbortEv: public Event{};
+
 class Tcb{
 
   public:
@@ -152,6 +154,8 @@ class State{
     virtual Status processEvent(int socket, Tcb& b, SegmentEv& se);
     virtual Status processEvent(int socket, Tcb& b, SendEv& se);
     virtual Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    virtual Status processEvent(int socket, Tcb& b, CloseEv& se);
+    virtual Status processEvent(int socket, Tcb& b, AbortEv& se);
 
 };
 
@@ -161,6 +165,8 @@ class ListenS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class SynSentS : State{
@@ -169,6 +175,8 @@ class SynSentS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class SynRecS : State{
@@ -177,6 +185,8 @@ class SynRecS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class EstabS : State{
@@ -185,6 +195,8 @@ class EstabS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class FinWait1S : State{
@@ -193,6 +205,8 @@ class FinWait1S : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class FinWait2S : State{
@@ -201,6 +215,8 @@ class FinWait2S : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class CloseWaitS : State{
@@ -209,6 +225,8 @@ class CloseWaitS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class ClosingS : State{
@@ -217,6 +235,8 @@ class ClosingS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class LastAckS : State{
@@ -225,6 +245,8 @@ class LastAckS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class TimeWaitS : State{
@@ -233,6 +255,8 @@ class TimeWaitS : State{
     Status processEvent(int socket, Tcb& b, SegmentEv& se);
     Status processEvent(int socket, Tcb& b, SendEv& se);
     Status processEvent(int socket, Tcb& b, ReceiveEv& se);
+    Status processEvent(int socket, Tcb& b, CloseEv& se);
+    Status processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 

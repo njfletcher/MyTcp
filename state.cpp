@@ -1472,7 +1472,97 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
 }
 
 
+Status ListenS::processEvent(int socket, Tcb& b, AbortEv& e){
 
+  for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
+    ReceiveEv& rEv = *iter;
+    notifyApp(b,TcpCode::ConnRst,e.id);
+  }
+  removeConn(b);
+  return Status();
+}
+
+Status SynSentS::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
+    ReceiveEv& rEv = *iter;
+    notifyApp(b,TcpCode::ConnRst,rEv.id);
+  }
+  
+  for(auto iter = b.sendQueue.begin(); iter < b.sendQueue.end(); iter++){
+    SendEv& sEv = *iter;
+    notifyApp(b,TcpCode::ConnRst,sEv.id);
+  }
+  
+  removeConn(b);
+  return Status();
+}
+
+Status normalAbortLogic(socket, Tcb& b, AbortEv& e){
+
+  LocalStatus ls = sendReset(socket, b.lP, b.rP, 0, false, b.sNxt);
+  
+  for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
+    ReceiveEv& rEv = *iter;
+    notifyApp(b,TcpCode::ConnRst,rEv.id);
+  }
+  
+  for(auto iter = b.sendQueue.begin(); iter < b.sendQueue.end(); iter++){
+    SendEv& sEv = *iter;
+    notifyApp(b,TcpCode::ConnRst,sEv.id);
+  }
+  b.retransmit.clear();
+  removeConn(b);
+  return Status(ls);
+
+}
+
+
+
+Status SynRecS::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  return normalAbortLogic(socket,b,e);
+  
+}
+
+Status EstabS::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  return normalAbortLogic(socket,b,e);
+  
+}
+
+Status FinWait1S::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  return normalAbortLogic(socket,b,e);
+  
+}
+
+Status FinWait2S::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  return normalAbortLogic(socket,b,e);
+  
+}
+
+Status CloseWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
+
+  return normalAbortLogic(socket,b,e);
+  
+}
+
+Status ClosingS::processEvent(int socket, Tcb& b, AbortEv& e){
+  notifyApp(b,TcpCode::Ok, e.id);
+  return Status();
+}
+
+Status LastAckS::processEvent(int socket, Tcb& b, AbortEv& e){
+  notifyApp(b,TcpCode::Ok, e.id);
+  return Status();
+}
+
+Status TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
+  notifyApp(b,TcpCode::Ok, e.id);
+  return Status();
+}
 
 
 
@@ -1687,6 +1777,21 @@ Status close(int appId, LocalPair lP, RemotePair rP){
   
   notifyApp(appId, TcpCode::NoConnExists);
   return Status();
+}
+
+Status abort(int appId, LocalPair lP, RemotePair rP){
+
+  AbortEv ev;
+  
+  if(connections.contains(lP)){
+    if(connections[lP].contains(rP){
+      Tcb& oldConn = connections[lP][rP];
+      return oldConn.currentState.processEvent(socket, oldConn, ev); 
+    }
+  }  
+  
+  notifyApp(appId, TcpCode::NoConnExists);
+  return Status()
 }
 
 Status open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId){
