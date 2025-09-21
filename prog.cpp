@@ -1,4 +1,5 @@
-#include "packet.h"
+#include "ipPacket.h"
+#include "tcpPacket.h"
 #include "network.h"
 #include <iostream>
 #include "state.h"
@@ -15,6 +16,11 @@ int main(int argc, char* argv[]){
 	
 	cout << argv[1] << endl;
         Tcb b;
-        activeOpen(argv[1], b);
+        
+        int createdId = 0;
+        LocalPair lp(0,0);
+        RemotePair rp(0,0);
+        Status s = open(0, false, lp, rp, createdId)
+
 	return 0;
 }

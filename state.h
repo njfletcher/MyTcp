@@ -3,6 +3,7 @@
 #include "tcpPacket.h"
 #include "ipPacket.h"
 #include <utility>
+#include <unordered_map>
 #include <queue>
 
 #define Unspecified 0
@@ -14,9 +15,11 @@
 #define sendQueueBytesMax 500
 #define defaultMSS 536 // maximum segment size
 
-typedef pair<uint32_t, uint16_t> LocalPair;
-typedef pair<uint32_t, uint16_t> RemotePair;
-typedef unordered_map<LocalPair, unordered_map<RemotePair, Tcb> > ConnectionMap;
+class Tcb;
+class State;
+typedef std::pair<uint32_t, uint16_t> LocalPair;
+typedef std::pair<uint32_t, uint16_t> RemotePair;
+typedef std::unordered_map<LocalPair, std::unordered_map<RemotePair, Tcb> > ConnectionMap;
 
 
 //status of the fuzzer itself: did it fail and how so?
@@ -76,7 +79,7 @@ class SegmentEv : public Event{
 
 class SendEv: public Event{
   public:
-    vector<uint8_t> data;
+    std::vector<uint8_t> data;
     bool urgent;
     uint32_t bytesRead = 0;
 };
@@ -84,7 +87,7 @@ class SendEv: public Event{
 class ReceiveEv: public Event{
   public:
     uint32_t amount;
-    vector<uint8_t> providedBuffer;
+    std::vector<uint8_t> providedBuffer;
 };
 
 class CloseEv: public Event{};
@@ -149,8 +152,7 @@ class Tcb{
 class State{
   
   public:
-    virSendEvStsendprocessEv
-    ent(int socket, Tcb& b, OpenEv& oe);
+    virtual Status processEvent(int socket, Tcb& b, OpenEv& oe);
     virtual Status processEvent(int socket, Tcb& b, SegmentEv& se);
     virtual Status processEvent(int socket, Tcb& b, SendEv& se);
     virtual Status processEvent(int socket, Tcb& b, ReceiveEv& se);

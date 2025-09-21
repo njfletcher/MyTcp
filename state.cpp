@@ -1565,16 +1565,6 @@ Status TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
 }
 
 
-
-
-
-
-
-
-
-
-
-
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
   OPENSSL_free(outdigest);

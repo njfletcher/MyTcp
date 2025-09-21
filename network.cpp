@@ -29,33 +29,30 @@ uint32_t getMmsS(){
 
 }
 
-//returns socket, or -1 if fail
-int bindSocket(uint32_t sourceAddr){
+NetworkCode bindSocket(uint32_t sourceAddr, int& socket){
   struct sockaddr_in serv;
   serv.sin_family = AF_INET;
   serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
   
   int s = socket(AF_INET, SOCK_RAW, TCP_PROTO);	
   if(s < 0){
-      perror("Cannot create socket. ");
-      return -1;
+      return NetworkCode::errorFatal;
   }
   int mark = 132322;
   if(setsockopt(s,SOL_SOCKET,SO_MARK,&mark,sizeof(mark)) < 0){
-    perror("Cannot mark socket. ");
-    return -1;
+    return NetworkCode::errorFatal;
   }
     
   if(bind(s, (struct sockaddr* ) &serv, sizeof(serv)) != 0){
-    perror("Cannot bind socket to server port. ");
-    return -1;     
+    return NetworkCode::errorFatal;
   }
   
-  return s;
+  socket = s;
+  return NetworkCode::success;
 
 }
 
-LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p){  
+NetworkCode sendPacket(int sock, uint32_t destAddr, TcpPacket& p){  
   struct sockaddr_in dest;
   dest.sin_family = AF_INET;
   dest.sin_addr.s_addr = toAltOrder<uint32_t>(destAddr);
@@ -66,29 +63,27 @@ LocalStatus sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   ssize_t numBytes = sendto(sock, buffer.data(), buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
   if(numBytes < 0){
     perror("Cannot send message. ");
-    return LocalStatus::RawSocket;
+    return NetworkCode::errorFatal;
   }
   
-  return LocalStatus::Success;
+  return NetworkCode::success;
 }
 
-Status recPacket(int sock, IpPacket& packet){
+NetworkCode recPacket(int sock, IpPacket& packet){
 
   *numBytesInner = 0;
   ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
 	
   if(numRec < 0){
-    perror("Cannot receive message. ");
-    return Status(LocalStatus::RawSocket);
+    return NetworkCode::errorFatal;
   }   
 	
-  RemoteStatus rs = packet.fromBuffer(ipBuffer, numRec);
-  if(rs != RemoteStatus::Success){
-    perror("Bad packet. ");
-    return Status(rs);
+  IpPacketCode rs = packet.fromBuffer(ipBuffer, numRec);
+  if(rs != IpPacketCode::success){
+    return NetworkCode::errorNonFatal;
   }
 	
-  return Status();
+  return NetworkCode::success;
 }	
       	
       	

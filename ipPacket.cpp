@@ -4,7 +4,6 @@
 #include <iostream>
 using namespace std;
 
-
 IpPacket::IpPacket(): tcpPacket() {};
 
 IpOption::IpOption(uint8_t t, uint8_t len, bool hasLen): type(t), length(len), hasLength(hasLen){};
@@ -36,7 +35,7 @@ void IpOption::toBuffer(vector<uint8_t>& buff){
 }
 
 //numBytesRemaining val is assumed to be greater than 0.
-RemoteStatus IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes){
+IpPacketCode IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes){
   
   int numBytesRead = 0;
   uint8_t t = buffer[0];
@@ -46,13 +45,13 @@ RemoteStatus IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& r
   if( t == static_cast<uint8_t>(IpOptionType::eool)){
       hasLength = false;
       retBytes = numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
-      return RemoteStatus::Success;
+      return IpPacketCode::success;
   }
 
   if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
       hasLength = false;
       retBytes = numBytesRead;
-      return RemoteStatus::Success;
+      return IpPacketCode::success;
   }
   
   uint8_t len = buffer[1];
@@ -62,14 +61,14 @@ RemoteStatus IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& r
   
   uint8_t dataLength = length -2; // to account for length and type field
   
-  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::BadPacketIp;
+  if(dataLength > (numBytesRemaining-2)) return IpPacketCode::option;
   
   for(uint8_t i = 0; i < dataLength; i++){
     data.push_back(buffer[2 + i]);
   }
   numBytesRead = numBytesRead + dataLength;
   retBytes = numBytesRead;
-  return RemoteStatus::Success;
+  return IpPacketCode::success;
 }
 
 IpPacket& IpPacket::setVersion(uint8_t vers){
@@ -229,10 +228,10 @@ uint32_t IpPacket::getOptionListByteCount(){
 IpPacket fromBuffer
 takes raw bytes and fills in the ip packet with them.
 */
-RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < ipMinHeaderLen){
-    return RemoteStatus::BadPacketIp;
+    return IpPacketCode::standardHeader;
   }
   
   versionIHL = buffer[0];
@@ -247,7 +246,7 @@ RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   destAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,16));
   
   uint8_t ihlConv = getIHL() * 4;
-  if(ihlConv < 20 || ihlConv > numBytes) return RemoteStatus::BadPacketIp;
+  if(ihlConv < 20 || ihlConv > numBytes) return IpPacketCode::standardHeader;
   
   uint8_t* currPointer = buffer + ipMinHeaderLen;
   
@@ -258,8 +257,8 @@ RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
     while(optionBytesRemaining > 0){
         IpOption o;
         int numBytesRead = 0
-        RemoteStatus rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(rs != RemoteStatus::Success) return rs;
+        IpPacketCode rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
+        if(rs != IpPacketCode::success) return rs;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -268,24 +267,8 @@ RemoteStatus IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   }
   
   int bytesRemaining = numBytes - ihlConv;
-  RemoteStatus s = tcpPacket.fromBuffer(currPointer, bytesRemaining);
-  return Status(s);
+  TcpPacketCode s = tcpPacket.fromBuffer(currPointer, bytesRemaining);
+  if(s != TcpPacketCode::success)return IpPacketCode::payload;
+  else return IpPacketCode::success;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

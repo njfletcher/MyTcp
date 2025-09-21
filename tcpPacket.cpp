@@ -48,7 +48,7 @@ void TcpOption::toBuffer(vector<uint8_t>& buff){
 }
 
 //numBytesRemaining val is assumed to be greater than 0.
-RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes){
+TcpPacketCode TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes){
   
   int numBytesRead = 0;
   uint8_t k = buffer[0];
@@ -59,22 +59,22 @@ RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& 
       hasLength = false;
       size = calcSize();
       retBytes = numBytesRemaining; //even if dataoffset claims there are more bytes, end means that reading needs to stop.
-      return RemoteStatus::Success;
+      return TcpPacketCode::success;
   }
   if(k == static_cast<uint8_t>(TcpOptionKind::noOp)){
       hasLength = false;
       size = calcSize();
       retBytes = numBytesRead;
-      return RemoteStatus::Success;
+      return TcpPacketCode::success;
   }
 
   //at this point it is either the mss option or some other option. either way this option will have to have a length field according to RFC 9293 MUST68
-  if(numBytesRemaining < 2) return RemoteStatus::BadPacketTcp;
+  if(numBytesRemaining < 2) return TcpPacketCode::option;
   
   uint8_t len = buffer[1];
   //length field includes itself and the kind byte. Anything less than 2 doesnt make sense
-  if(len < 2) return RemoteStatus::BadPacketTcp;
-  if(k == static_cast<uint8_t>(TcpOptionKind::mss) && len != 4) return RemoteStatus::BadPacketTcp;
+  if(len < 2) return TcpPacketCode::option;
+  if(k == static_cast<uint8_t>(TcpOptionKind::mss) && len != 4) return TcpPacketCode::option;
   
   numBytesRead = numBytesRead + 1;
   length = len;
@@ -83,7 +83,7 @@ RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& 
   
   uint8_t dataLength = len -2; // to account for length and type field
   
-  if(dataLength > (numBytesRemaining-2)) return RemoteStatus::BadPacketTcp;
+  if(dataLength > (numBytesRemaining-2)) return TcpPacketCode::option;
   
   for(uint8_t i = 0; i < dataLength; i++){
     data.push_back(buffer[2 + i]);
@@ -91,11 +91,11 @@ RemoteStatus TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& 
   numBytesRead = numBytesRead + dataLength;
   size = calcSize();
   retBytes = numBytesRead;
-  return RemoteStatus::Success;
+  return TcpPacketCode::success;
   
 }
 
-void onesCompAdd(uint16_t& num1, uint16_t num2){
+void onesCompint16_t& num1, uint16_t num2){
 
   uint32_t res = num1 + num2;
   if(res > 0xffff){
@@ -271,10 +271,10 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 	for(size_t i = 0; i < payload.size(); i++) buff.push_back(payload[i]);
 }
 
-RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < tcpMinHeaderLen){
-    return RemoteStatus::BadPacketTcp;
+    return TcpPacketCode::standardHeader;
   }
 
   sourcePort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,0));
@@ -288,7 +288,7 @@ RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   urgPointer = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,18));
 
   uint8_t offsetConv = getDataOffset() * 4;
-  if(offsetConv < 20 || offsetConv > numBytes) return RemoteStatus::BadPacketTcp;
+  if(offsetConv < 20 || offsetConv > numBytes) return TcpPacketCode::standardHeader;
   
   uint8_t* currPointer = buffer + tcpMinHeaderLen;
   
@@ -299,8 +299,8 @@ RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
     while(optionBytesRemaining > 0){
         TcpOption o;
         int numBytesRead = 0;
-        RemoteStatus rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(rs != RemoteStatus::Success) return rs;
+        TcpPacketCode rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
+        if(rs != TcpPacketCode::success) return rs;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -316,7 +316,7 @@ RemoteStatus TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   size = calcSize();
 
-  return RemoteStatus::Success;
+  return TcpPacketCode::success;
 }
 
 

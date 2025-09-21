@@ -7,6 +7,15 @@
 #define ipPacketMaxSize 65535
 #define numIpPacketFlags 3
 
+enum class IpPacketCode{
+  success = 0,
+  option = 1,
+  standardHeader = 2,
+  payload = 3,
+  other = 4
+};
+
+
 enum class IpOptionType{
 
   eool = 0,
@@ -47,7 +56,7 @@ class IpOption{
     IpOption(uint8_t t, uint8_t len, bool hasLen);
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
-    RemoteStatus fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
+    IpPacketCode fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
   private:
     uint8_t type;
     uint8_t length;
@@ -91,7 +100,7 @@ class IpPacket{
     
     uint32_t getOptionListByteCount();
     
-    RemoteStatus fromBuffer(uint8_t* buffer, int numBytes);
+    IpPacketCode fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
 
