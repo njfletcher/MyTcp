@@ -21,31 +21,6 @@ typedef std::pair<uint32_t, uint16_t> LocalPair;
 typedef std::pair<uint32_t, uint16_t> RemotePair;
 typedef std::unordered_map<LocalPair, std::unordered_map<RemotePair, Tcb> > ConnectionMap;
 
-
-//status of the fuzzer itself: did it fail and how so?
-enum class LocalStatus{
-  Success = 0,
-  RawSocket = 1
-};
-
-//status of the tcp being fuzzed: did it fail and how so?
-enum class RemoteStatus{
-  Success = 0,
-  UnexpectedPacket = 1, // packet appears to be incorrect based on where it is in the tcp state/packet sequence.
-  BadPacketTcp = 2, // packet appears to be incorrect based on data within the packet on its own.Tcp 
-  SuspectedCrash = 3,
-  MalicPacket = 4, // a packet that was sent from the fuzzee could be interpreted as malicious. This could indicate their handling of rfc 5961 is incorrect.
-  BadPacketIp = 5, // packet appears to be incorrect based on data within the packet on its own. IP 
-};
-
-class Status{
-  public:
-    LocalStatus ls;
-    RemoteStatus rs;
-    Status(LocalStatus l = LocalStatus::Success, RemoteStatus r = RemoteStatus::Success);
-};
-
-
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
 enum class TcpCode{
