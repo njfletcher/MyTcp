@@ -7,6 +7,13 @@
 #define defaultTcpDataOffset 5
 
 
+enum class TcpPacketCode{
+  Success = 0,
+  Options = -1,
+  Header = -2,
+  Payload = -3
+};
+
 enum class TcpOptionKind{
   end = 0,
   noOp = 1,
@@ -70,7 +77,7 @@ class TcpPacket{
     TcpPacket& setOptions(std::vector<TcpOption> list);
     TcpPacket& setPayload(std::vector<uint8_t> payload);
     
-    bool fromBuffer(uint8_t* buffer, int numBytes);
+    TcpPacketCode fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
 

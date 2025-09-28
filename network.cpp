@@ -68,7 +68,10 @@ bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   return true;
 }
 
-bool recPacket(int sock, IpPacket& packet){
+
+//returns bool representing if there were no errors with actually getting the packet
+// goodPacket is a bool that represents whether or not the packet is a valid tcp/ip packet
+bool recPacket(int sock, IpPacket& packet, IpPacketCode& packetCode){
 
   *numBytesInner = 0;
   ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
@@ -77,8 +80,8 @@ bool recPacket(int sock, IpPacket& packet){
     return false;
   }   
     
-  bool rs = packet.fromBuffer(ipBuffer, numRec);
-  return rs;
+  packetCode = packet.fromBuffer(ipBuffer, numRec);
+  return true;
   
 }
 	

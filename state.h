@@ -37,6 +37,18 @@ enum class TcpCode{
   Closing = -29
 };
 
+enum class LocalCode{
+  Success = 0,
+  Socket = -1
+};
+
+enum class RemoteCode{
+  Success = 0,
+  MalformedPacket = -1,
+  UnexpectedPacket = -2
+
+};
+
 class Event{
 
   public:

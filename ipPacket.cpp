@@ -228,10 +228,10 @@ uint32_t IpPacket::getOptionListByteCount(){
 IpPacket fromBuffer
 takes raw bytes and fills in the ip packet with them.
 */
-bool IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < ipMinHeaderLen){
-    return false;
+    return IpPacketCode::Header;
   }
   
   versionIHL = buffer[0];
@@ -246,7 +246,7 @@ bool IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   destAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,16));
   
   uint8_t ihlConv = getIHL() * 4;
-  if(ihlConv < 20 || ihlConv > numBytes) return false;
+  if(ihlConv < 20 || ihlConv > numBytes) return IpPacketCode::Header;
   
   uint8_t* currPointer = buffer + ipMinHeaderLen;
   
@@ -258,7 +258,7 @@ bool IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
         IpOption o;
         int numBytesRead = 0
         IpPacketCode rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(!rs) return rs;
+        if(!rs) return IpPacketCode::Header;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -267,7 +267,8 @@ bool IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   }
   
   int bytesRemaining = numBytes - ihlConv;
-  bool s = tcpPacket.fromBuffer(currPointer, bytesRemaining);
-  return s;
+  TcpPacketCode c = tcpPacket.fromBuffer(currPointer, bytesRemaining);
+  if(c != TcpPacketCode::Success)return IpPacketCode::Payload;
+  else return IpPacketCode::Success;
 }
 

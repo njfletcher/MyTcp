@@ -271,10 +271,10 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 	for(size_t i = 0; i < payload.size(); i++) buff.push_back(payload[i]);
 }
 
-bool TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
+TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < tcpMinHeaderLen){
-    return false;
+    return TcpPacketCode::Header;
   }
 
   sourcePort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,0));
@@ -288,7 +288,7 @@ bool TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   urgPointer = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,18));
 
   uint8_t offsetConv = getDataOffset() * 4;
-  if(offsetConv < 20 || offsetConv > numBytes) return false;
+  if(offsetConv < 20 || offsetConv > numBytes) return TcpPacketCode::Header;
   
   uint8_t* currPointer = buffer + tcpMinHeaderLen;
   
@@ -300,7 +300,7 @@ bool TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
         TcpOption o;
         int numBytesRead = 0;
         bool rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(!rs) return rs;
+        if(!rs) return TcpPacketCode::Options;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -316,7 +316,7 @@ bool TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   size = calcSize();
 
-  return true;
+  return TcpPacketCode::Success;
 }
 
 
