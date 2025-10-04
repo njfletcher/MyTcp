@@ -232,41 +232,41 @@ bool ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
   
 }
 
-StateReturn SynSentS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode SynSentS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn SynRecS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode SynRecS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn EstabS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode EstabS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn FinWait1S::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode FinWait1S::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn FinWait2S::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode FinWait2S::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn CloseWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode CloseWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn ClosingS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode ClosingS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn LastAckS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode LastAckS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
-StateReturn TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
   notifyApp(b, TcpCode::DupConn);
-  return StateReturn{StateCode::success};
+  return LocalCode::Success;
 }
 
 
@@ -1073,45 +1073,48 @@ bool addToSendQueue(Tcb& b, SendEv& se){
   
 }
 
-Status ListenS::processEvent(int socket, Tcb& b, SendEv& se){
+LocalCode ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 
   if(b.rP.first == Unspecified || b.rP.second == Unspecified){
     notifyApp(b, TcpCode::ActiveUnspec);
-    return Status();
+    return LocalCode::Success;
   }
   
   pickRealIsn(b); 
   
-  LocalStatus ls = sendSyn(socket, b, b.lP, b.rP, false);
-  if(ls == LocalStatus::Success){
+  bool ls = sendSyn(socket, b, b.lP, b.rP, false);
+  if(ls){
     b.sUna = b.iss;
     b.sNxt = b.iss + 1;
     b.passiveOpen = false;
     b.currentState = SynSentS();
     addToSendQueue(b,se);
+    return LocalCode::Success;
+  }
+  else{
+    return LocalCode::Socket;
   }
   
-  return Status(ls);
   
 }
 
 
 
-Status SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
+LocalCode SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
 
     addToSendQueue(b,se);
-    return Status();
+    return LocalCode::Success;
 
 }
 
-Status SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
+LocalCode SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
 
     addToSendQueue(b,se);
-    return Status();
+    return LocalCode::Success;
 
 }
 
-LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, bool& cont){
+LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, bool& cont){
 
     uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
     SendEv& ev = b.sendQueue.front();
@@ -1119,9 +1122,9 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
     //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
     if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
         //send finished packet
-        LocalStatus ls = sendDataPacket(socket,b,sendPacket);
-        if(ls != LocalStatus::Success){
-            return ls;
+        bool ls = sendDataPacket(socket,b,sendPacket);
+        if(!ls){
+            return LocalCode::Socket;
         }
         sendPacket = TcpPacket{};
         sendPacket.setSeqNum(b.sNxt);
@@ -1162,9 +1165,9 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
         if(upperBound == windowRoom){
             sendMorePackets = false;
             cont = false;
-            LocalStatus ls = sendDataPacket(socket,b,sendPacket); 
-            if(ls != LocalStatus::Success){
-                return ls;
+            bool ls = sendDataPacket(socket,b,sendPacket); 
+            if(!ls){
+                return LocalCode::Socket;
             }
             sendPacket = TcpPacket{};
             sendPacket.setSeqNum(b.sNxt);
@@ -1173,7 +1176,10 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
         else{
             if(upperBound == packetRoom){
                 if(sendFin) sendPacket.setFlag(TcpPacketFlags::fin);
-                LocalStatus ls = sendDataPacket(socket,b,sendPacket);
+                bool ls = sendDataPacket(socket,b,sendPacket);
+                if(!ls){
+                  return LocalCode::Socket;
+                }
                 sendPacket = TcpPacket{};
                 sendPacket.setSeqNum(b.sNxt);
             }
@@ -1183,19 +1189,19 @@ LocalStatus segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, b
 
     }
 
-    return LocalStatus::Success;
+    return LocalCode::Success;
 
 }
 
-Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
+LocalCode EstabS::processEvent(int socket, Tcb& b, SendEv& se){
 
   TcpPacket sendPacket;
   sendPacket.setSeqNum(b.sNxt);
   bool sendMoreData = true;
   while(!b.sendQueue.empty() && sendMoreData){
-      LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-      if(ls != LocalStatus::Success){
-          return Status(ls);
+      LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+      if(ls != LocalCode::Success){
+          return ls;
       }
   }
         
@@ -1204,9 +1210,9 @@ Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
   if(sendMoreData){
       bool added = addToSendQueue(b,se);
       if(added){
-          LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-          if(ls != LocalStatus::Success){
-              return Status(ls);
+          LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+          if(ls != LocalCode::Success){
+              return ls;
           }
       }
       
@@ -1215,19 +1221,19 @@ Status EstabS::processEvent(int socket, Tcb& b, SendEv& se){
       addToSendQueue(b,se);
   }
   
-  return Status{};
+  return LocalCode::Success;
 
 }
 
-Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
+LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
 
   TcpPacket sendPacket;
   sendPacket.setSeqNum(b.sNxt);
   bool sendMoreData = true;
   while(!b.sendQueue.empty() && sendMoreData){
-      LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-      if(ls != LocalStatus::Success){
-          return Status(ls);
+      LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+      if(ls != LocalCode::Success){
+          return ls;
       }
   }
         
@@ -1236,9 +1242,9 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
   if(sendMoreData){
       bool added = addToSendQueue(b,se);
       if(added){
-          LocalStatus ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-          if(ls != LocalStatus::Success){
-              return Status(ls);
+          LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
+          if(ls != LocalCode::Success){
+              return ls;
           }
       }
       
@@ -1247,29 +1253,29 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
       addToSendQueue(b,se);
   }
   
-  return Status{};
+  return LocalCode::Success;
 
 }
 
-Status FinWait1S::processEvent(int socket, Tcb& b, SendEv& oe){
+LocalCode FinWait1S::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 }
-Status FinWait2S::processEvent(int socket, Tcb& b, SendEv& oe){
+LocalCode FinWait2S::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 }
-Status ClosingS::processEvent(int socket, Tcb& b, SendEv& oe){
+LocalCode ClosingS::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 }
-Status LastAckS::processEvent(int socket, Tcb& b, SendEv& oe){
+LocalCode LastAckS::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 }
-Status TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
+LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
   notifyApp(b, TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 }
 
 bool addToRecQueue(Tcb& b, Event& e){
@@ -1284,28 +1290,28 @@ bool addToRecQueue(Tcb& b, Event& e){
   
 }
 
-Status ListenS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode ListenS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     addToRecQueue(b,e);
-    return Status();
+    return LocalCode::Success;
 
 }
 
-Status SynSentS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode SynSentS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     addToRecQueue(b,e);
-    return Status();
+    return LocalCode::Success;
 
 }
 
-Status SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     addToRecQueue(b,e);
-    return Status();
+    return LocalCode::Success;
 
 }
 
-Status processRead(Tcb&b, ReceiveEv& e){
+LocalCode processRead(Tcb&b, ReceiveEv& e){
 
     uint32_t readBytes = 0;
     if(b.arrangedSegmentsByteCount >= e.amount){
@@ -1343,37 +1349,34 @@ Status processRead(Tcb&b, ReceiveEv& e){
     else{
       addToRecQueue(b,e);
     }
-    return Status();
-
-
-
+    return LocalCode::Success;
 
 }
 
-Status EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   return processRead(b,e);
 
 }
 
-Status FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   return processRead(b,e);
 
 }
 
 
-Status FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   return processRead(b,e);
 
 }
 
-Status CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     if(b.arrangedSegmentsByteCount == 0){
       notifyApp(TcpCode::ConnClosing);
-      return Status();
+      return LocalCode::Success;
     
     }
 
@@ -1412,43 +1415,43 @@ Status CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
       }
   }
     
-  return Status();
+  return LocalCode::Success;
 
 }
 
 
-Status ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   notifyApp(TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 
 }
 
-Status LastAckS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode LastAckS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   notifyApp(TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 
 }
 
-Status TimeWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
+LocalCode TimeWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
   notifyApp(TcpCode::ConnClosing);
-  return Status();
+  return LocalCode::Success;
 
 }
 
-Status ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
     notifyApp(b,TcpCode::Closing,e.id);
   }
   removeConn(b);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status SynSentS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode SynSentS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
@@ -1461,90 +1464,93 @@ Status SynSentS::processEvent(int socket, Tcb& b, CloseEv& e){
   }
   
   removeConn(b);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status SynRecS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode SynRecS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
-    LocalStatus ls = sendFin(socket,b);
+    bool ls = sendFin(socket,b);
     b.currentState = FinWait1S();
-    return Status(ls);
+    if(ls) return LocalCode::Success;
+    else return LocalCode::Socket;
   }
   else{
     b.closeQueue.push_back(e);
-    return Status();
+    return LocalCode::Success;
   }
   
 }
 
-Status EstabS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode EstabS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
-    LocalStatus ls = sendFin(socket,b);
+    bool ls = sendFin(socket,b);
     b.currentState = FinWait1S();
-    return Status(ls);
+    if(ls) return LocalCode::Success;
+    else return LocalCode::Socket;
   }
   else{
     b.closeQueue.push_back(e);
     b.currentState = FinWait1S();
-    return Status();
+    return LocalCode::Success;
   }
   
 }
 
-Status FinWait1S::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode FinWait1S::processEvent(int socket, Tcb& b, CloseEv& e){
   notifyApp(b,TcpCode::ConnClosing, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status FinWait2S::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode FinWait2S::processEvent(int socket, Tcb& b, CloseEv& e){
   notifyApp(b,TcpCode::ConnClosing, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status CloseWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode CloseWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
-    LocalStatus ls = sendFin(socket,b);
+    bool ls = sendFin(socket,b);
     b.currentState = LastAckS();
-    return Status(ls);
+    if(ls) return LocalCode::Success;
+    else return LocalCode::Socket;
   }
   else{
     b.closeQueue.push_back(e);
     b.currentState = LastAckS();
-    return Status();
+    return LocalCode::Success;
   }
 
 }
 
-Status ClosingS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode ClosingS::processEvent(int socket, Tcb& b, CloseEv& e){
   notifyApp(b,TcpCode::ConnClosing, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status LastAckS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode LastAckS::processEvent(int socket, Tcb& b, CloseEv& e){
   notifyApp(b,TcpCode::ConnClosing, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status TimeWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
+LocalCode TimeWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
   notifyApp(b,TcpCode::ConnClosing, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
 
-Status ListenS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode ListenS::processEvent(int socket, Tcb& b, AbortEv& e){
 
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
     notifyApp(b,TcpCode::ConnRst,e.id);
   }
   removeConn(b);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status SynSentS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode SynSentS::processEvent(int socket, Tcb& b, AbortEv& e){
 
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
@@ -1557,12 +1563,12 @@ Status SynSentS::processEvent(int socket, Tcb& b, AbortEv& e){
   }
   
   removeConn(b);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status normalAbortLogic(socket, Tcb& b, AbortEv& e){
+LocalCode normalAbortLogic(socket, Tcb& b, AbortEv& e){
 
-  LocalStatus ls = sendReset(socket, b.lP, b.rP, 0, false, b.sNxt);
+  bool ls = sendReset(socket, b.lP, b.rP, 0, false, b.sNxt);
   
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
@@ -1575,55 +1581,56 @@ Status normalAbortLogic(socket, Tcb& b, AbortEv& e){
   }
   b.retransmit.clear();
   removeConn(b);
-  return Status(ls);
+  if(ls) return LocalCode::Success;
+  else return LocalCode::Socket;
 
 }
 
 
 
-Status SynRecS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode SynRecS::processEvent(int socket, Tcb& b, AbortEv& e){
 
   return normalAbortLogic(socket,b,e);
   
 }
 
-Status EstabS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode EstabS::processEvent(int socket, Tcb& b, AbortEv& e){
 
   return normalAbortLogic(socket,b,e);
   
 }
 
-Status FinWait1S::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode FinWait1S::processEvent(int socket, Tcb& b, AbortEv& e){
 
   return normalAbortLogic(socket,b,e);
   
 }
 
-Status FinWait2S::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode FinWait2S::processEvent(int socket, Tcb& b, AbortEv& e){
 
   return normalAbortLogic(socket,b,e);
   
 }
 
-Status CloseWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode CloseWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
 
   return normalAbortLogic(socket,b,e);
   
 }
 
-Status ClosingS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode ClosingS::processEvent(int socket, Tcb& b, AbortEv& e){
   notifyApp(b,TcpCode::Ok, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status LastAckS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode LastAckS::processEvent(int socket, Tcb& b, AbortEv& e){
   notifyApp(b,TcpCode::Ok, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
-Status TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
+LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
   notifyApp(b,TcpCode::Ok, e.id);
-  return Status();
+  return LocalCode::Success;
 }
 
 
@@ -1781,7 +1788,7 @@ void removeConn(Tcb& b){
 }
 
 
-Status send(int appId, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
+LocalCode send(int appId, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
 
   SendEv ev;
   ev.urgent = urgent;
@@ -2036,14 +2043,16 @@ entryTcp-
 Starts the tcp implementation, equivalent to a tcp module being loaded.
 in the future bind this to all available source addresses and poll all of them, not just one address
 */
-Status entryTcp(char* sourceAddr){
+LocalCode entryTcp(char* sourceAddr){
 
   uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
-  int socket =  bindSocket(sourceAddress);
-  if(socket < 0){
-    return Code::RawSock;
+  int socket = 0;
+  bool worked =  bindSocket(sourceAddress, socket);
+  if(!worked){
+    return LocalCode::Socket;
   }
   
+  RemoteCode remCode = RemoteCode::Success;
   struct pollfd pollItem;
   pollItem.fd = socket;
   pollItem.events = POLLIN; //read
@@ -2051,11 +2060,11 @@ Status entryTcp(char* sourceAddr){
   
     int numRet = poll(&pollItem, 1, -1);
     if((numRet > 0) && (pollItem.revents & POLLIN)){
-      multiplexIncoming(socket);
+      multiplexIncoming(socket, remCode);
     }
   
   }
   
-  return Status();
+  return LocalCode::Success;
 }
 

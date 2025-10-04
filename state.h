@@ -139,160 +139,112 @@ class Tcb{
 class State{
   
   public:
-    virtual Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    virtual Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    virtual Status processEvent(int socket, Tcb& b, SendEv& se);
-    virtual Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    virtual Status processEvent(int socket, Tcb& b, CloseEv& se);
-    virtual Status processEvent(int socket, Tcb& b, AbortEv& se);
+    virtual LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    virtual LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    virtual LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    virtual LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    virtual LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    virtual LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 
 };
 
 class ListenS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class SynSentS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class SynRecS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class EstabS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class FinWait1S : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class FinWait2S : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class CloseWaitS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class ClosingS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class LastAckS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class TimeWaitS : State{
   public:
-    Status processEvent(int socket, Tcb& b, OpenEv& oe);
-    Status processEvent(int socket, Tcb& b, SegmentEv& se);
-    Status processEvent(int socket, Tcb& b, SendEv& se);
-    Status processEvent(int socket, Tcb& b, ReceiveEv& se);
-    Status processEvent(int socket, Tcb& b, CloseEv& se);
-    Status processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
