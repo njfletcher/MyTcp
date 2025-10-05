@@ -188,7 +188,7 @@ void TcpPacket::print(){
 	cout << "dataOffset: " << static_cast<unsigned int>(getDataOffset()) << endl;
 	cout << "reserved: " << static_cast<unsigned int>(getReserved())  << endl;
 	cout << "+++Flags+++" << endl;
-	for(int i = static_cast<int>(TcpPacketFlags::fin); i < static_cast<int>(TcpPacketFlags::cwr) + 1; i++) cout << "flag " << p << ": " << static_cast<unsigned int>(getFlag(static_cast<TcpPacketFlags>(p))) << endl;
+	for(int i = static_cast<int>(TcpPacketFlags::fin); i < static_cast<int>(TcpPacketFlags::cwr) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<TcpPacketFlags>(i))) << endl;
 	cout << "+++++++++++" << endl;
 	cout << "window: " << window << endl;
 	cout << "checksum: " << checksum  << endl;

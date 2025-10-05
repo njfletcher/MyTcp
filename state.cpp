@@ -18,20 +18,175 @@
 #include <climits>
 #include <functional>
 #include <algorithm>
+#include <memory>
 
 using namespace std;
 
 //range from dynPortStart to dynPortEnd
-unordered_set<uint16_t> usedPorts;
+unordered_map<uint16_t,bool> usedPorts;
 //ids range from 0 to max val of int
 unordered_map<int, pair<LocalPair,RemotePair>> idMap;
+
+std::size_t ConnHash::operator()(const ConnPair& p) const {
+  
+  return std::hash<uint32_t>{}(p.first.first) ^
+  (std::hash<uint16_t>{}(p.first.second) << 1) ^
+  (std::hash<uint32_t>{}(p.second.first) << 2) ^
+  (std::hash<uint16_t>{}(p.second.second) << 3);
+}
+
 uint32_t bestLocalAddr;
 ConnectionMap connections;
 
-StateReturn::StateReturn(StateCode c, bool fatal): code(c), isFatal(fatal){}
 Tcb::Tcb(LocalPair l, RemotePair r, bool passive) : lP(l), rP(r), passiveOpen(passive){}
 
+/*pickDynPort 
+picks an unused port from the dynamic range
+if for some reason it cant find one, returns 0(unspecified)
+the user should check for unspecified as an error
+*/
+uint16_t pickDynPort(){
+  
+  for(uint16_t p = dynPortStart; p <= dynPortEnd; p++){
+    if(usedPorts.find(p) == usedPorts.end()){
+      usedPorts[p] = true;
+      return p;
+    }
+  }
+  return Unspecified;
 
+}
+
+/*pickId
+picks an available id to map a connection to. 
+returns -1 for error or an id for success
+*/
+int pickId(){
+  for(int i = 0; i <= INT_MAX; i++){
+    if(idMap.find(i) == idMap.end()) return i;
+  }
+  return -1;
+}
+
+/*
+reclaimId
+reclaims id so that it can be used with new connections
+assumes the id is a valid one that is in use
+*/
+void reclaimId(int id){
+  idMap.erase(id);
+}
+
+/*pickDynAddr
+ideally will pick best address based on routing tables.
+for right now this just returns a default address
+*/
+uint32_t pickDynAddr(){
+
+  return bestLocalAddr;
+}
+
+void removeConn(Tcb& b){
+
+  reclaimId(b.id);
+  ConnPair p(b.lP,b.rP);
+  connections.erase(p);
+}
+
+void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
+
+  OPENSSL_free(outdigest);
+  EVP_MD_free(sha256);
+  EVP_MD_CTX_free(ctx);
+  
+  if(res < 0){
+    ERR_print_errors_fp(stderr);
+  }
+}
+
+int pickRealIsn(Tcb& block){
+
+  chrono::time_point t = chrono::system_clock::now();
+  chrono::duration d = t.time_since_epoch();
+  uint32_t tVal = d.count();
+
+  unsigned char randBuffer[keyLen];
+  if(RAND_bytes(randBuffer, keyLen) < 1){
+    ERR_print_errors_fp(stderr);
+    return -1;
+  }
+  unsigned char buffer[keyLen + (sizeof(block.rP.first) * 2) + (sizeof(block.rP.second) * 2)];
+  
+  size_t i = 0;
+  size_t end = sizeof(block.rP.first);
+  for(;i < end; i++){
+    size_t shift = ((sizeof(block.rP.first) -1) * 8) - (8 * i);
+    uint32_t val = 0xff;
+    buffer[i] = (block.rP.first & (val << shift)) >> shift;
+  }
+  end = end + sizeof(block.lP.first);
+  for(; i < end; i++){
+    size_t shift = ((sizeof(block.lP.first) -1) * 8) - (8 * i);
+    uint32_t val = 0xff;
+    buffer[i] = (block.lP.first & (val << shift)) >> shift;
+  }
+  end = end + sizeof(block.rP.second);
+  for(; i < end; i++){
+    size_t shift = ((sizeof(block.rP.second) -1) * 8) - (8 * i);
+    uint32_t val = 0xff;
+    buffer[i] = (block.rP.second & (val << shift)) >> shift;
+  }
+  end = end + sizeof(block.lP.second);
+  for(; i < end; i++){
+    size_t shift = ((sizeof(block.lP.second) -1) * 8) - (8 * i);
+    uint32_t val = 0xff;
+    buffer[i] = (block.lP.second & (val << shift)) >> shift;
+  }
+
+  for(size_t j = 0; j < keyLen; j++){
+    buffer[i+j] = randBuffer[j];
+  }
+  
+  EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+  if(ctx == NULL){
+    cleanup(-1,NULL,ctx,NULL);
+    return -1;
+  }
+  
+  EVP_MD* sha256 = EVP_MD_fetch(NULL,"SHA256", NULL);
+  if(!EVP_DigestInit_ex(ctx,sha256,NULL)){
+    cleanup(-1,sha256,ctx,NULL);
+    return -1;
+  }
+  
+  if( !EVP_DigestUpdate(ctx, buffer, sizeof(buffer))){
+    cleanup(-1,sha256,ctx,NULL);
+    return -1;
+  }
+  
+  unsigned char* outdigest = (unsigned char*) OPENSSL_malloc(EVP_MD_get_size(sha256));
+  if(outdigest == NULL){
+    cleanup(-1, sha256,ctx,outdigest);
+    return -1;
+  }
+  
+  unsigned int len = 0;
+  if(!EVP_DigestFinal_ex(ctx, outdigest, &len)){
+    cleanup(-1,sha256,ctx,outdigest);
+    return -1;
+  }
+  
+  cleanup(0,sha256,ctx,outdigest);
+  
+  if(len < 4){
+    return -1;
+  }
+  
+  uint32_t bufferTrunc = outdigest[0] | (outdigest[1] << 8) | (outdigest[2] << 16) | (outdigest[3] << 24);
+  
+  block.iss = tVal + bufferTrunc;
+  return 0;
+}
 
 void printTcpCode(TcpCode c){
   string s = "signal: ";
@@ -77,10 +232,10 @@ bool checkSecurity(Tcb& b, IpPacket& p){
 
 //MSS: maximum tcp segment(data only) size.
 uint32_t getMSSValue(uint32_t destAddr){
-  uint32_t maxMss = getMmsR - tcpMinHeaderLen;
+  uint32_t maxMss = getMmsR() - tcpMinHeaderLen;
   uint32_t calcMss = getMtu(destAddr) - ipMinHeaderLen - tcpMinHeaderLen;
   if(calcMss > maxMss) return maxMss;
-  else calcMss;
+  else return calcMss;
 }
 
 //effective send mss: how much tcp data are we actually allowed to send to the peer.
@@ -110,7 +265,7 @@ bool verifyRecWindow(Tcb& b, TcpPacket& p){
   uint32_t segLen = p.getSegSize();
   uint32_t seqNum = p.getSeqNum();
   if(segLen > 0){
-    if(rWnd >0){
+    if(b.rWnd >0){
       uint32_t lastByte = seqNum + segLen - 1;
       return ((b.rNxt <= seqNum && seqNum < (b.rNxt + b.rWnd)) || (b.rNxt <= lastByte && lastByte < (b.rNxt + b.rWnd)));
     }
@@ -155,7 +310,7 @@ bool sendDataPacket(int socket, Tcb& b, TcpPacket& p){
 
  p.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setAck(b.rNxt).setWindow(b.rWnd).setOptions(vector<TcpOption>{}).setRealChecksum(b.lP.first, b.rP.first);
       
-  return sendPacket(socket,b.rP.first,sPacket);
+  return sendPacket(socket,b.rP.first,p);
 }
 
 bool sendCurrentAck(int socket, Tcb& b){
@@ -190,10 +345,10 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   }
   sPacket.setFlag(TcpPacketFlags::syn).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.iss).setWindow(b.rWnd).setOptions(options).setPayload(data);
     
-  if(b.myMSS != defaultMSS){
+  if(b.myMss != defaultMSS){
     vector<uint8_t> mss;
-    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.myMSS),mss);
-    TcpOption(TcpOptionKind::mss, 0x4, true, mss) mssOpt;
+    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.myMss),mss);
+    TcpOption mssOpt(static_cast<uint8_t>(TcpOptionKind::mss), 0x4, true, mss);
     options.push_back(mssOpt);
     sPacket.setDataOffset(sPacket.getDataOffset() + 1); //since the mss option is 4 bytes we can cleanly add one word to offset.
   }
@@ -203,13 +358,13 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   return sendPacket(socket, rp.first, sPacket);
 }
 
-bool ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
+LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
   bool passive = oe.passive;
   if(!passive){
     if(b.rP.first == Unspecified || b.rP.second == Unspecified){
-      notifyApp(b, TcpCode::ActiveUnspec);
-      return true;
+      notifyApp(b, TcpCode::ActiveUnspec, oe.id);
+      return LocalCode::Success;
     }
     
     pickRealIsn(b);
@@ -219,53 +374,53 @@ bool ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
       b.passiveOpen = false;
-      b.currentState = SynSentS();
-      return true
+      b.currentState = make_shared<SynSentS>();
+      return LocalCode::Success;
     }
-    else false;
+    else LocalCode::Socket;
     
   }
   else{
-    notifyApp(b, TcpCode::DupConn);
-    return true;
+    notifyApp(b, TcpCode::DupConn, oe.id);
+    return LocalCode::Success;
   }
   
 }
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode SynRecS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode EstabS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode ClosingS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode LastAckS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 LocalCode TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn);
+  notifyApp(b, TcpCode::DupConn, oe.id);
   return LocalCode::Success;
 }
 
@@ -277,7 +432,7 @@ void checkAndSetMSS(Tcb& b, TcpPacket& tcpP){
     TcpOption o = *i;
     if(o.kind == static_cast<uint8_t>(TcpOptionKind::mss)){
     
-      uint16_t sentMss = toAltOrder<uint16_t>(unloadBytes<uint16_t>(o.data,0));
+      uint16_t sentMss = toAltOrder<uint16_t>(unloadBytes<uint16_t>(o.data.data(),0));
       b.peerMss = sentMss;
       break;
     }
@@ -309,7 +464,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   
     uint32_t segLen = tcpP.getSegSize();
     if(!checkSecurity(b, ipP)){
-      bool sent = sendReset(socket, b.lP, recPair, tcpP.getSeqNum() + seqLen , true, 0);
+      bool sent = sendReset(socket, b.lP, recPair, tcpP.getSeqNum() + segLen , true, 0);
       remCode = RemoteCode::MalformedPacket;
       if(!sent) return LocalCode::Socket;
       else return LocalCode::Success;
@@ -326,7 +481,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
     if(sent){
       b.sUna = b.iss;
       b.sNxt = b.iss + 1;
-      b.stateLogic = SynRecS();
+      b.currentState = make_shared<SynRecS>();
       if(b.rP.first == Unspecified) b.rP.first = recPair.first;
       if(b.rP.second == Unspecified) b.rP.second = recPair.second;
       //TODO 3.10.7.2 possibly trigger another event for processing of data and other control flags here: maybe forward packet without syn and ack flags set?
@@ -373,7 +528,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
     
     if(ackFlag){
       removeConn(b);
-      notifyApp(b, TcpCode::ConnRst);
+      notifyApp(b, TcpCode::ConnRst, se.id);
     }
     else{
       remCode = RemoteCode::UnexpectedPacket;
@@ -413,7 +568,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       //TODO: data or controls that were queued for transmission may be added to this packet
       bool sent = sendCurrentAck(socket, b);
       if(sent){
-          b.currentState = EstabS();
+          b.currentState = make_shared<EstabS>();
           return LocalCode::Success;
       }
       else{
@@ -425,7 +580,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       //simultaneous connection attempt
       bool sent = sendSyn(socket, b, b.lP, b.rP, true);
       if(sent){
-        b.currentState = synReceived;
+        b.currentState = make_shared<SynRecS>();
         return LocalCode::Success;
       }
       else{
@@ -478,7 +633,7 @@ LocalCode checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, fu
         return LocalCode::Success;
       }
       
-      if(seqNum != b.rNxt){  
+      if(tcpP.getSeqNum() != b.rNxt){  
         bool sent = sendCurrentAck(socket,b);
         remCode = RemoteCode::UnexpectedPacket;
         if(!sent) return LocalCode::Socket;
@@ -1631,160 +1786,6 @@ LocalCode LastAckS::processEvent(int socket, Tcb& b, AbortEv& e){
 LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
   notifyApp(b,TcpCode::Ok, e.id);
   return LocalCode::Success;
-}
-
-
-void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
-
-  OPENSSL_free(outdigest);
-  EVP_MD_free(sha256);
-  EVP_MD_CTX_free(ctx);
-  
-  if(res < 0){
-    ERR_print_errors_fp(stderr);
-  }
-}
-
-int pickRealIsn(Tcb& block){
-
-  chrono::time_point t = chrono::system_clock::now();
-  chrono::duration d = t.time_since_epoch();
-  uint32_t tVal = d.count();
-
-  unsigned char randBuffer[keyLen];
-  if(RAND_bytes(randBuffer, keyLen) < 1){
-    ERR_print_errors_fp(stderr);
-    return -1;
-  }
-  unsigned char buffer[keyLen + (sizeof(block.sourceAddress) * 2) + (sizeof(block.sourcePort) * 2)];
-  
-  size_t i = 0;
-  size_t end = sizeof(block.sourceAddress);
-  for(;i < end; i++){
-    size_t shift = ((sizeof(block.sourceAddress) -1) * 8) - (8 * i);
-    uint32_t val = 0xff;
-    buffer[i] = (block.sourceAddress & (val << shift)) >> shift;
-  }
-  end = end + sizeof(block.destAddress);
-  for(; i < end; i++){
-    size_t shift = ((sizeof(block.destAddress) -1) * 8) - (8 * i);
-    uint32_t val = 0xff;
-    buffer[i] = (block.destAddress & (val << shift)) >> shift;
-  }
-  end = end + sizeof(block.sourcePort);
-  for(; i < end; i++){
-    size_t shift = ((sizeof(block.sourcePort) -1) * 8) - (8 * i);
-    uint32_t val = 0xff;
-    buffer[i] = (block.sourcePort & (val << shift)) >> shift;
-  }
-  end = end + sizeof(block.destPort);
-  for(; i < end; i++){
-    size_t shift = ((sizeof(block.destPort) -1) * 8) - (8 * i);
-    uint32_t val = 0xff;
-    buffer[i] = (block.destPort & (val << shift)) >> shift;
-  }
-
-  for(size_t j = 0; j < keyLen; j++){
-    buffer[i+j] = randBuffer[j];
-  }
-  
-  EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-  if(ctx == NULL){
-    cleanup(-1,NULL,ctx,NULL);
-    return -1;
-  }
-  
-  EVP_MD* sha256 = EVP_MD_fetch(NULL,"SHA256", NULL);
-  if(!EVP_DigestInit_ex(ctx,sha256,NULL)){
-    cleanup(-1,sha256,ctx,NULL);
-    return -1;
-  }
-  
-  if( !EVP_DigestUpdate(ctx, buffer, sizeof(buffer))){
-    cleanup(-1,sha256,ctx,NULL);
-    return -1;
-  }
-  
-  unsigned char* outdigest = (unsigned char*) OPENSSL_malloc(EVP_MD_get_size(sha256));
-  if(outdigest == NULL){
-    cleanup(-1, sha256,ctx,outdigest);
-    return -1;
-  }
-  
-  unsigned int len = 0;
-  if(!EVP_DigestFinal_ex(ctx, outdigest, &len)){
-    cleanup(-1,sha256,ctx,outdigest);
-    return -1;
-  }
-  
-  cleanup(0,sha256,ctx,outdigest);
-  
-  if(len < 4){
-    return -1;
-  }
-  
-  uint32_t bufferTrunc = outdigest[0] | (outdigest[1] << 8) | (outdigest[2] << 16) | (outdigest[3] << 24);
-  
-  block.iss = tVal + bufferTrunc;
-  return 0;
-}
-
-
-
-/*pickDynPort 
-picks an unused port from the dynamic range
-if for some reason it cant find one, returns 0(unspecified)
-the user should check for unspecified as an error
-*/
-uint16_t pickDynPort(){
-  
-  for(uint16_t p = dynPortStart; p <= dynPortEnd; p++){
-    if(!usedPorts.contains(p)){
-      usedPorts.insert(p);
-      return p;
-    }
-  }
-  return Unspecified;
-
-}
-
-/*pickId
-picks an available id to map a connection to. 
-returns -1 for error or an id for success
-*/
-int pickId(){
-  for(0 i = 0; i <= INT_MAX; i++){
-    if(!idMap.contains(i)) return i;
-  }
-  return -1;
-}
-
-/*
-reclaimId
-reclaims id so that it can be used with new connections
-assumes the id is a valid one that is in use
-*/
-void reclaimId(int id){
-  idMap.erase(id);
-}
-
-/*pickDynAddr
-ideally will pick best address based on routing tables.
-for right now this just returns a default address
-*/
-uint32_t pickDynAddr(){
-
-  return bestLocalAddr;
-}
-
-void removeConn(Tcb& b){
-
-  reclaimId(b.id);
-  connections[b.lP].erase(rP);
-  if(connections[b.lP].empty()){
-    connections.erase(b.lP);
-  }
-  
 }
 
 

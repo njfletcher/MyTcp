@@ -15,12 +15,13 @@ int main(int argc, char* argv[]){
 	}
 	
 	cout << argv[1] << endl;
-        Tcb b;
+        
         
         int createdId = 0;
         LocalPair lp(0,0);
         RemotePair rp(0,0);
-        Status s = open(0, false, lp, rp, createdId)
+  
+        LocalCode s = open(0, false, lp, rp, createdId);
 
 	return 0;
 }

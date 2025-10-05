@@ -4,7 +4,7 @@
 #include <iostream>
 using namespace std;
 
-IpPacket::IpPacket(): tcpPacket() {};
+IpPacket::IpPacket(): tcpPacket{} {};
 
 IpOption::IpOption(uint8_t t, uint8_t len, bool hasLen): type(t), length(len), hasLength(hasLen){};
 
@@ -174,7 +174,7 @@ void IpPacket::print(){
 	cout << "total length: " << totalLength << endl;
 	cout << "identification: " << identification  << endl;
 	cout << "///Flags///" << endl;
-	for(int i = static_cast<int>(IpPacketFlags::moreFrag); i < static_cast<int>(IpPacketFlags::reserved) + 1; i++) cout << "flag " << p << ": " << static_cast<unsigned int>(getFlag(static_cast<IpPacketFlags(p))) << endl;
+	for(int i = static_cast<int>(IpPacketFlags::moreFrag); i < static_cast<int>(IpPacketFlags::reserved) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<IpPacketFlags>(i))) << endl;
 	cout << "///////////" << endl;
 	cout << "fragment offset: " << getFragOffset() << endl;
 	cout << "ttl: " << static_cast<unsigned int>(ttl)  << endl;
@@ -256,8 +256,8 @@ IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
     int optionBytesRemaining = ihlConv - ipMinHeaderLen;
     while(optionBytesRemaining > 0){
         IpOption o;
-        int numBytesRead = 0
-        IpPacketCode rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
+        int numBytesRead = 0;
+        bool rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
         if(!rs) return IpPacketCode::Header;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;

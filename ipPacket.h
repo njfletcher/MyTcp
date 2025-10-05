@@ -12,7 +12,7 @@ enum class IpPacketCode{
   Options = -1,
   Header = -2,
   Payload = -3
-}
+};
 
 enum class IpOptionType{
 
@@ -55,7 +55,6 @@ class IpOption{
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
     bool fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
-  private:
     uint8_t type;
     uint8_t length;
     bool hasLength; 
@@ -103,7 +102,7 @@ class IpPacket{
     void print();
 
     std::vector<IpOption> optionList;
-    TcpPacket& tcpPacket;
+    TcpPacket tcpPacket;
     
   //all multi-byte fields are guaranteed to be in host byte order.
   private:

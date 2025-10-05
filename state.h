@@ -5,6 +5,7 @@
 #include <utility>
 #include <unordered_map>
 #include <queue>
+#include <memory>
 
 #define Unspecified 0
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
@@ -17,9 +18,19 @@
 
 class Tcb;
 class State;
+
+
+
 typedef std::pair<uint32_t, uint16_t> LocalPair;
 typedef std::pair<uint32_t, uint16_t> RemotePair;
-typedef std::unordered_map<LocalPair, std::unordered_map<RemotePair, Tcb> > ConnectionMap;
+typedef std::pair<LocalPair, RemotePair> ConnPair;
+
+struct ConnHash{
+  std::size_t operator()(const ConnPair& p) const;
+};
+
+typedef std::unordered_map<ConnPair, Tcb*, ConnHash > ConnectionMap;
+
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
@@ -130,8 +141,8 @@ class Tcb{
     
     std::queue<CloseEv> closeQueue;
     
-    State currentState;
-    passiveOpen = false;
+    std::shared_ptr<State> currentState;
+    bool passiveOpen = false;
   
 };
 
@@ -148,7 +159,7 @@ class State{
 
 };
 
-class ListenS : State{
+class ListenS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -158,7 +169,7 @@ class ListenS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class SynSentS : State{
+class SynSentS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -168,7 +179,7 @@ class SynSentS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class SynRecS : State{
+class SynRecS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -178,7 +189,7 @@ class SynRecS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class EstabS : State{
+class EstabS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -188,7 +199,7 @@ class EstabS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class FinWait1S : State{
+class FinWait1S : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -198,7 +209,7 @@ class FinWait1S : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class FinWait2S : State{
+class FinWait2S : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -208,7 +219,7 @@ class FinWait2S : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class CloseWaitS : State{
+class CloseWaitS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -218,7 +229,7 @@ class CloseWaitS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class ClosingS : State{
+class ClosingS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -228,7 +239,7 @@ class ClosingS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class LastAckS : State{
+class LastAckS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -238,7 +249,7 @@ class LastAckS : State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
-class TimeWaitS : State{
+class TimeWaitS : public State{
   public:
     LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
     LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
@@ -247,4 +258,11 @@ class TimeWaitS : State{
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
+
+LocalCode send(int appId, bool urgent, std::vector<uint8_t>& data, LocalPair lP, RemotePair rP);
+LocalCode receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP);
+LocalCode close(int appId, LocalPair lP, RemotePair rP);
+LocalCode abort(int appId, LocalPair lP, RemotePair rP);
+LocalCode open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId);
+LocalCode entryTcp(char* sourceAddr);
 
