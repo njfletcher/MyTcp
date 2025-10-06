@@ -623,7 +623,7 @@ LocalCode checkSequenceNum(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remC
 
 }*/
 
-LocalCode checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, function<LocalCode(int, Tcb&, TcpPacket&)> nextLogic, RemoteCode& remCode){
+LocalCode checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, RemoteCode& remCode, bool& reset){
 
   if(tcpP.getFlag(TcpPacketFlags::rst)){
   
@@ -640,16 +640,16 @@ LocalCode checkReset(int socket, Tcb& b, TcpPacket& tcpP, bool windowChecked, fu
         else return LocalCode::Success;
       }
       
-      return nextLogic(socket,b,tcpP);
+      reset = true;
   }
   
   return LocalCode::Success;
 
 }
 
-LocalCode remConnFlushAll(int socket, Tcb& b, TcpPacket& tcpP){
+LocalCode remConnFlushAll(int socket, Tcb& b, TcpPacket& tcpP, Event& e){
   removeConn(b);
-  notifyApp(b, TcpCode::ConnRst);
+  notifyApp(b, TcpCode::ConnRst, e.id);
   return LocalCode::Success;
   //TODO: flush segment queues and respond reset to outstanding receives and sends.
 
@@ -659,7 +659,7 @@ LocalCode remConnOnly(int socket, Tcb& b, TcpPacket& tcpP){
   return LocalCode::Success;
 }
 
-LocalCode checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<LocalCode(int, Tcb&, TcpPacket&)> nextLogic, RemoteCode& remCode){
+LocalCode checkSec(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
   
   if(!checkSecurity(b,ipP)){
     bool sent = false;
@@ -673,10 +673,7 @@ LocalCode checkSec(int socket, Tcb& b, TcpPacket& tcpP, function<LocalCode(int, 
     remCode = RemoteCode::MalformedPacket;
     if(!sent) return LocalCode::Socket;
     
-    return nextLogic(socket,b,tcpP);
-    
   }
-  
   return LocalCode::Success;
 
 }
@@ -695,7 +692,7 @@ LocalCode checkSyn(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
   
 }
 
-LocalCode checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<LocalCode(int, Tcb&, TcpPacket&, RemoteCode& remCode)> nextLogic, RemoteCode& remCode){
+LocalCode checkAck(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
   
   if(tcpP.getFlag(TcpPacketFlags::ack){
   
@@ -710,8 +707,7 @@ LocalCode checkAck(int socket, Tcb& b, TcpPacket& tcpP, function<LocalCode(int, 
       else return LocalCode::Success;
     }
     
-    return nextLogic(socket,b,tcpP, remCode); 
-    
+    return LocalCode::Success;
   }
   else{
     remCode = RemoteCode::UnexpectedPacket;
@@ -752,13 +748,13 @@ LocalCode establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& r
     
 }
 
-LocalCode checkUrg(Tcb&b, TcpPacket& tcpP){
+LocalCode checkUrg(Tcb&b, TcpPacket& tcpP, Event& e){
 
   if(tcpP.getFlag(TcpPacketFlags::urg)){
     uint32_t segUp = tcpP.getSeqNum() + tcpP.getUrg();
     if(b.rUp < segUp) b.rUp = segUp;
     if((b.rUp >= b.appNewData) && !b.urgentSignaled){
-      notifyApp(TcpCode::UrgentData);
+      notifyApp(TcpCode::UrgentData, e.id);
       b.urgentSignaled = true;
     }
   }
@@ -797,15 +793,15 @@ LocalCode processData(int socket, Tcb&b, TcpPacket& tcpP){
   return LocalCode::Success;
 }
 
-LocalCode checkFin(int socket, Tcb& b, TcpPacket& tcpP, function<Status(int, Tcb&, TcpPacket&)> nextLogic){
+LocalCode checkFin(int socket, Tcb& b, TcpPacket& tcpP, bool& fin, Event& e){
   
   //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
   if(b.rWnd > 0){
     if(tcpP.getFlag(TcpPacketFlags::fin)){
       b.rNxt = b.rNxt + 1;
       //TODO: return conn closing to any pending recs and push any waiting segments.
-      notifyApp(b,TcpCode::ConnClosing);
-      return nextLogic(socket,b,tcpP);
+      notifyApp(b,TcpCode::ConnClosing, e.id);
+      fin = true;
     }
   }
   return LocalCode::Success;
@@ -825,32 +821,32 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
     
-  function<LocalCode(int,Tcb&,TcpPacket&)> goodResetLogic = [](int, Tcb&, TcpPacket&){
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(reset){
     if(b.passiveOpen){
-      b.currentState = ListenS();
+      b.currentState = make_shared<ListenS>();
       return LocalCode::Success;
     }
     else{
       removeConn(b);
-      notifyApp(b, TcpCode::ConnRef);
+      notifyApp(b, TcpCode::ConnRef, se.id);
       return LocalCode::Success;
     }
     //TODO : flush retransmission queue
-  };
+  }
   
-  s = checkReset(socket,b,tcpP,true,goodResetLogic, remCode);
-  if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
-      
-  function<LocalCode(int, Tcb&, TcpPacket&)> secFailLogic = []{return LocalCode::Success;};
-  s = checkSec(socket,b,tcpP,secFailLogic, remCode);
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
 
   if(tcpP.getFlag(TcpPacketFlags::syn){
   
     if(b.passiveOpen){
-      b.currentState = ListenS();
+      b.currentState = make_shared<ListenS>();
       return LocalCode::Success;
     }
     //challenge ack recommended by RFC 5961  
@@ -860,28 +856,27 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
     else return LocalCode::Success;
     
   }
+    
+  s = checkAck(socket,b,tcpP, remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  function<LocalCode(int,Tcb&,TcpPacket&,RemoteCode& remCode)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
-    uint32_t ackNum = tcpP.getAckNum();
-    if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
-      b.currentState = EstabS();
-      b.sWnd = tcpP.getWindow();
-      if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-      b.sWl1 = tcp.getSeqNum();
-      b.sWl2 = ackNum();
-      //TODO trigger further processing event
-      return LocalCode::Success;
-    }
-    else{
-      bool sent = sendReset(socket, b.lP, b.rP, 0, false, ackNum);
-      remCode = RemoteCode::UnexpectedPacket;
-      if(!sent) return LocalCode::Socket;
-      else return LocalCode::Success;
-    }
-  };
-  
-  s = checkAck(socket,b,tcpP,goodAckLogic, remCode);
-  return s;
+  uint32_t ackNum = tcpP.getAckNum();
+  if((ackNum > b.sUna) && (ackNum <= b.sNxt)){
+    b.currentState = make_shared<EstabS>();
+    b.sWnd = tcpP.getWindow();
+    if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
+    b.sWl1 = tcp.getSeqNum();
+    b.sWl2 = ackNum();
+    //TODO trigger further processing event
+    return LocalCode::Success;
+  }
+  else{
+    bool sent = sendReset(socket, b.lP, b.rP, 0, false, ackNum);
+    remCode = RemoteCode::UnexpectedPacket;
+    if(!sent) return LocalCode::Socket;
+    else return LocalCode::Success;
+  }
   
   //anything past this that needs processing will have been handed off to synchronized state
   
@@ -901,34 +896,51 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   //if(s != LocalCode::Success) return s;
   
   
-  s = checkReset(socket,b,tcpP,true,remConnFlushAll, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    else return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
 
-  s = checkAck(socket,b,tcpP,establishedAckLogic, remCode);
+  s = checkAck(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkUrg(b,tcpP);
+  s = establishedAckLogic(socket, b, tcpP, remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  s = checkUrg(b,tcpP,se);
   if(s != LocalCode::Success) return s;
   
   s = processData(socket,b,tcpP);  
   if(s != LocalCode::Success) return s;
   
-  function<LocalCode(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
-    b.currentState = CloseWaitS();
-    return LocalCode::Success;
-  }
-  s = checkFin(socket,b,tcpP,goodFinLogic);
+  bool fin = false;
+  s = checkFin(socket,b,tcpP,fin,se);
   if(s != LocalCode::Success) return s;
+  
+  if(fin){
+      b.currentState = make_shared<CloseWaitS>();
+      return LocalCode::Success;
+  }
   
   bool sent = sendCurrentAck(socket, b);
   if(!sent) return LocalCode::Socket;
@@ -949,44 +961,61 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
   
-  s = checkReset(socket,b,tcpP,true,remConnFlushAll, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkAck(socket,b,tcpP,establishedAckLogic, remCode);
+  s = checkAck(socket,b,tcpP,remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  s = establishedAckLogic(socket, b, tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
   // if we've reached this part we know ack is set and acceptable
   if(tcpP.getAckNum() == b.sNxt){
       //fin segment fully acknowledged
-      b.currentState = FinWait2S();
+      b.currentState = make_shared<FinWait2S>();
       //TODO: futher processing in fin wait 2s
       return LocalCode::Success;
   }
   
-  s = checkUrg(b,tcpP);
+  s = checkUrg(b,tcpP, se);
   if(s != LocalCode::Success) return s;
   
   s = processData(socket,b,tcpP);
   if(s != LocalCode::Success) return s;
   
-  function<LocalCode(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
-    //if fin were acked, would have not reached this part. So fin is not acked yet.
-    b.currentState = ClosingS();
-    return LocalCode::Success;
-  }
   
-  s = checkFin(socket,b,tcpP,goodFinLogic);
+  bool fin = false;
+  s = checkFin(socket,b,tcpP,fin,se);
   if(s != LocalCode::Success) return s;
+  
+  if(fin){
+      b.currentState = make_shared<ClosingS>();
+      return LocalCode::Success;
+  
+  }
         
   bool sent = sendCurrentAck(socket,b);
   if(!sent) return LocalCode::Socket;
@@ -1007,39 +1036,55 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
   
-  s = checkReset(socket,b,tcpP,true,remConnFlushAll, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true,remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){  
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkAck(socket,b,tcpP,establishedAckLogic, remCode);
+  s = checkAck(socket,b,tcpP, remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  s = establishedAckLogic(socket, b, tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
   if(b.retransmit.size() < 1){
-      notifyApp(b,TcpCode::Ok);
+      notifyApp(b,TcpCode::Ok, se.id);
   }
   
-  s = checkUrg(b,tcpP);
+  s = checkUrg(b,tcpP, se);
   if(s != LocalCode::Success) return s;
   
   s = processData(socket,b,tcpP);
   if(s != LocalCode::Success) return s;
   
-  function<LocalCode(int,Tcb&,TcpPacket&)> goodFinLogic = [](int, Tcb&, TcpPacket&){
-    //if fin were acked, would have not reached this part. So fin is not acked yet.
-    b.currentState = TimeWaitS();
-    return LocalCode::Success;
-  }
-  s = checkFin(socket,b,tcpP,goodFinLogic);
+  bool fin = false;
+  s = checkFin(socket,b,tcpP,fin,se);
   if(s != LocalCode::Success) return s;
+  
+  if(fin){
+      b.currentState = make_shared<TimeWaitS>();
+      return LocalCode::Success;
+  }
         
   bool sent = sendCurrentAck(socket,b);
   if(!sent) return LocalCode::Socket;
@@ -1060,19 +1105,34 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
   
-  s = checkReset(socket,b,tcpP,true,remConnFlushAll, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP,remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkAck(socket,b,tcpP,establishedAckLogic, remCode);
+  s = checkAck(socket,b,tcpP, remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  s = establishedAckLogic(socket, b, tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
@@ -1095,26 +1155,41 @@ LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
 
-  s = checkReset(socket,b,tcpP,true,remConnOnly, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnOnly(socket, b, tcpP);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkAck(socket,b,tcpP,establishedAckLogic, remCode);
+  s = checkAck(socket,b,tcpP, remCode);
+  if(s != LocalCode::Success) return s;
+  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  s = establishedAckLogic(socket, b, tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
   // if we've reached this part we know ack is set and acceptable
   if(tcpP.getAckNum() == b.sNxt){
       //fin segment fully acknowledged
-      b.currentState = TimeWaitS();
+      b.currentState = make_shared<TimeWaitS>();
       return LocalCode::Success;
   }
     
@@ -1137,31 +1212,42 @@ LocalCode LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
   
-  s = checkReset(socket,b,tcpP,true,remConnOnly, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true,remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnOnly(socket, b, tcpP);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP,remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  function<LocalCode(int,Tcb&,TcpPacket&, RemoteCode& remCode)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
-    if(tcpP.getAckNum() == b.sNxt){
-      removeConn(b);
-      return LocalCode::Success;
-    }
-    else{
-      remCode = RemoteCode::UnexpectedPacket;
-      return LocalCode::Success;
-    }
-  };
-  s = checkAck(socket,b,tcpP,goodAckLogic, remCode);
+
+  s = checkAck(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(tcpP.getAckNum() == b.sNxt){
+    removeConn(b);
+    return LocalCode::Success;
+  }
+  else{
+    remCode = RemoteCode::UnexpectedPacket;
+    return LocalCode::Success;
+  }
   
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
@@ -1180,31 +1266,41 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
     
-  s = checkReset(socket,b,tcpP,true,remConnOnly, remCode);
+  bool reset = false;
+  s = checkReset(socket,b,tcpP,true, remCode, reset);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  s = checkSec(socket,b,tcpP,remConnFlushAll, remCode);
+  if(reset){
+    LocalCode c = remConnOnly(socket, b, tcpP);
+    if(c != LocalCode::Success) return c;
+  }
+  
+  s = checkSec(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
-  if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(remCode != RemoteCode::Success){
+    LocalCode c = remConnFlushAll(socket, b, tcpP, se);
+    if(c != LocalCode::Success) return c;
+    return LocalCode::Success;
+  }
   
   s = checkSyn(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
   
-  function<LocalCode(int,Tcb&,TcpPacket&, RemoteCode& remCode)> goodAckLogic = [](int socket,Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
-    if(tcpP.getAckNum() == b.sNxt){
-      removeConn(b);
-      return LocalCode::Success;
-    }
-    else{
-      remCode = RemoteCode::UnexpectedPacket;
-      return LocalCode::Success;
-    }
-  };
-  s = checkAck(socket,b,tcpP,goodAckLogic, remCode);
+  s = checkAck(socket,b,tcpP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
+  
+  if(tcpP.getAckNum() == b.sNxt){
+    removeConn(b);
+    return LocalCode::Success;
+  }
+  else{
+    remCode = RemoteCode::UnexpectedPacket;
+    return LocalCode::Success;
+  }
   
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
