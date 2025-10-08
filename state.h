@@ -29,7 +29,7 @@ struct ConnHash{
   std::size_t operator()(const ConnPair& p) const;
 };
 
-typedef std::unordered_map<ConnPair, Tcb*, ConnHash > ConnectionMap;
+typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
 
 
 //Codes that are specified by Tcp rfcs.
@@ -134,12 +134,12 @@ class Tcb{
     std::deque<TcpSegmentSlice> arrangedSegments;
     int arrangedSegmentsByteCount = 0;
     
-    std::queue<ReceiveEv> recQueue;
+    std::deque<ReceiveEv> recQueue;
     
-    std::queue<SendEv> sendQueue;
+    std::deque<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     
-    std::queue<CloseEv> closeQueue;
+    std::deque<CloseEv> closeQueue;
     
     std::shared_ptr<State> currentState;
     bool passiveOpen = false;

@@ -225,6 +225,10 @@ void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
   return;
 }
 
+void notifyApp(uint32_t appId, TcpCode c, uint32_t eId){
+  return;
+}
+
 //TODO: research tcp security/compartment and how this check should work
 bool checkSecurity(Tcb& b, IpPacket& p){
   return true;
@@ -659,7 +663,9 @@ LocalCode remConnOnly(int socket, Tcb& b, TcpPacket& tcpP){
   return LocalCode::Success;
 }
 
-LocalCode checkSec(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
+LocalCode checkSec(int socket, Tcb& b, IpPacket& ipP, RemoteCode& remCode){
+  
+  TcpPacket& tcpP = ipP.tcpPacket;
   
   if(!checkSecurity(b,ipP)){
     bool sent = false;
@@ -680,7 +686,7 @@ LocalCode checkSec(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
 
 LocalCode checkSyn(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
 
-  if(tcpP.getFlag(TcpPacketFlags::syn){
+  if(tcpP.getFlag(TcpPacketFlags::syn)){
   
     //challenge ack recommended by RFC 5961  
     bool sent = sendCurrentAck(socket, b);
@@ -694,7 +700,7 @@ LocalCode checkSyn(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
 
 LocalCode checkAck(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
   
-  if(tcpP.getFlag(TcpPacketFlags::ack){
+  if(tcpP.getFlag(TcpPacketFlags::ack)){
   
     uint32_t ackNum = tcpP.getAckNum();
   
@@ -719,6 +725,7 @@ LocalCode checkAck(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
 LocalCode establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& remCode){
 
     uint32_t ackNum = tcpP.getAckNum();
+    uint32_t seqNum = tcpP.getSeqNum();
     if((ackNum >= b.sUna) && (ackNum <= b.sNxt)){
     
       if(ackNum > b.sUna){
@@ -739,7 +746,7 @@ LocalCode establishedAckLogic(int socket, Tcb& b, TcpPacket& tcpP, RemoteCode& r
     else{
       remCode = RemoteCode::UnexpectedPacket;
       if(ackNum > b.sNxt){
-            bool sent = sendCurrentAck(socket,b,tcpP);
+            bool sent = sendCurrentAck(socket,b);
             if(!sent) return LocalCode::Socket;
             else return LocalCode::Success;
       }
@@ -754,7 +761,7 @@ LocalCode checkUrg(Tcb&b, TcpPacket& tcpP, Event& e){
     uint32_t segUp = tcpP.getSeqNum() + tcpP.getUrg();
     if(b.rUp < segUp) b.rUp = segUp;
     if((b.rUp >= b.appNewData) && !b.urgentSignaled){
-      notifyApp(TcpCode::UrgentData, e.id);
+      notifyApp(b,TcpCode::UrgentData, e.id);
       b.urgentSignaled = true;
     }
   }
@@ -768,17 +775,17 @@ LocalCode processData(int socket, Tcb&b, TcpPacket& tcpP){
   //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
   //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
   
-  if(seqNum != arrangedSegments.back().seqNum){
+  if(seqNum != b.arrangedSegments.back().seqNum){
     TcpSegmentSlice newSlice;
     newSlice.push == tcpP.getFlag(TcpPacketFlags::psh);
     newSlice.seqNum = seqNum;
-    arrangedSegments.push_back(newSlice);
+    b.arrangedSegments.push_back(newSlice);
   }
   
   uint32_t beginUnProc = static_cast<uint32_t>(b.rNxt - seqNum);
   uint32_t index = beginUnProc;
   while((b.arrangedSegmentsByteCount < arrangedSegmentsBytesMax) && (index < static_cast<uint32_t>(tcpP.payload.size()))){
-    b.arrangedSegments.back().push_back(tcpP.payload[index]);
+    b.arrangedSegments.back().unreadData.push(tcpP.payload[index]);
     index++;
     b.arrangedSegmentsByteCount++;
   }
@@ -839,11 +846,11 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
     //TODO : flush retransmission queue
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b,ipP, remCode);
   if(s != LocalCode::Success) return s;
   if(remCode != RemoteCode::Success) return LocalCode::Success;
 
-  if(tcpP.getFlag(TcpPacketFlags::syn){
+  if(tcpP.getFlag(TcpPacketFlags::syn)){
   
     if(b.passiveOpen){
       b.currentState = make_shared<ListenS>();
@@ -866,8 +873,8 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
     b.currentState = make_shared<EstabS>();
     b.sWnd = tcpP.getWindow();
     if(b.sWnd >= b.maxSWnd) b.maxSWnd = b.sWnd;
-    b.sWl1 = tcp.getSeqNum();
-    b.sWl2 = ackNum();
+    b.sWl1 = tcpP.getSeqNum();
+    b.sWl2 = tcpP.getAckNum();
     //TODO trigger further processing event
     return LocalCode::Success;
   }
@@ -906,7 +913,7 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b,ipP, remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -971,7 +978,7 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b, ipP, remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -1046,7 +1053,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b,ipP, remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){  
@@ -1115,7 +1122,7 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP,remCode);
+  s = checkSec(socket,b,ipP,remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -1165,7 +1172,7 @@ LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b,ipP, remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -1222,7 +1229,7 @@ LocalCode LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP,remCode);
+  s = checkSec(socket,b,ipP,remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -1276,7 +1283,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
     if(c != LocalCode::Success) return c;
   }
   
-  s = checkSec(socket,b,tcpP, remCode);
+  s = checkSec(socket,b,ipP, remCode);
   if(s != LocalCode::Success) return s;
   
   if(remCode != RemoteCode::Success){
@@ -1314,11 +1321,11 @@ bool addToSendQueue(Tcb& b, SendEv& se){
   int sendQueueSize = b.sendQueueByteCount + se.data.size();
   if(sendQueueSize < sendQueueBytesMax){
       b.sendQueueByteCount = sendQueueSize;
-      b.sendQueue.push(se);
+      b.sendQueue.push_back(se);
       return true;
   }
   else{
-      notifyApp(b, TcpCode::Resources);
+      notifyApp(b, TcpCode::Resources, se.id);
       return false;
   }
   
@@ -1327,7 +1334,7 @@ bool addToSendQueue(Tcb& b, SendEv& se){
 LocalCode ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 
   if(b.rP.first == Unspecified || b.rP.second == Unspecified){
-    notifyApp(b, TcpCode::ActiveUnspec);
+    notifyApp(b, TcpCode::ActiveUnspec, se.id);
     return LocalCode::Success;
   }
   
@@ -1338,7 +1345,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SendEv& se){
     b.sUna = b.iss;
     b.sNxt = b.iss + 1;
     b.passiveOpen = false;
-    b.currentState = SynSentS();
+    b.currentState = make_shared<SynSentS>();
     addToSendQueue(b,se);
     return LocalCode::Success;
   }
@@ -1378,7 +1385,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
             return LocalCode::Socket;
         }
         sendPacket = TcpPacket{};
-        sendPacket.setSeqNum(b.sNxt);
+        sendPacket.setSeq(b.sNxt);
     }
      
     uint32_t bytesRead = ev.bytesRead;
@@ -1386,7 +1393,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
     while(sendMorePackets){
         uint32_t windowRoom = (b.sUna + b.sWnd) - b.sNxt;
         uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
-        uint32_t packetRoom = effSendMSS - sendPacket.payload.size();
+        uint32_t packetRoom = effSendMss - sendPacket.payload.size();
         uint32_t upperBound = min({packetRoom, dataRoom, windowRoom});
         for(uint32_t i = 0; i < upperBound; i++){
             sendPacket.payload.push_back(ev.data[bytesRead+i]);
@@ -1401,7 +1408,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
         }
         if(upperBound == dataRoom){
             sendMorePackets = false;
-            b.sendQueue.pop();
+            b.sendQueue.pop_front();
             b.sendQueueByteCount -= ev.data.size();
             if(b.sendQueue.empty() && !(b.closeQueue.empty())){
               sendFin = true;
@@ -1421,7 +1428,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
                 return LocalCode::Socket;
             }
             sendPacket = TcpPacket{};
-            sendPacket.setSeqNum(b.sNxt);
+            sendPacket.setSeq(b.sNxt);
               
         }
         else{
@@ -1432,7 +1439,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
                   return LocalCode::Socket;
                 }
                 sendPacket = TcpPacket{};
-                sendPacket.setSeqNum(b.sNxt);
+                sendPacket.setSeq(b.sNxt);
             }
               
           
@@ -1447,7 +1454,7 @@ LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, boo
 LocalCode EstabS::processEvent(int socket, Tcb& b, SendEv& se){
 
   TcpPacket sendPacket;
-  sendPacket.setSeqNum(b.sNxt);
+  sendPacket.setSeq(b.sNxt);
   bool sendMoreData = true;
   while(!b.sendQueue.empty() && sendMoreData){
       LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
@@ -1479,7 +1486,7 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SendEv& se){
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
 
   TcpPacket sendPacket;
-  sendPacket.setSeqNum(b.sNxt);
+  sendPacket.setSeq(b.sNxt);
   bool sendMoreData = true;
   while(!b.sendQueue.empty() && sendMoreData){
       LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
@@ -1509,33 +1516,33 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, SendEv& oe){
-  notifyApp(b, TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, oe.id);
   return LocalCode::Success;
 }
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, SendEv& oe){
-  notifyApp(b, TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, oe.id);
   return LocalCode::Success;
 }
 LocalCode ClosingS::processEvent(int socket, Tcb& b, SendEv& oe){
-  notifyApp(b, TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, oe.id);
   return LocalCode::Success;
 }
 LocalCode LastAckS::processEvent(int socket, Tcb& b, SendEv& oe){
-  notifyApp(b, TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, oe.id);
   return LocalCode::Success;
 }
 LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SendEv& oe){
-  notifyApp(b, TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, oe.id);
   return LocalCode::Success;
 }
 
-bool addToRecQueue(Tcb& b, Event& e){
+bool addToRecQueue(Tcb& b, ReceiveEv& e){
   if((b.recQueue.size() + 1) < recQueueMax){
-      b.recQueue.push(e);
+      b.recQueue.push_back(e);
       return true;
   }
   else{
-      notifyApp(b, TcpCode::Resources);
+      notifyApp(b, TcpCode::Resources, e.id);
       return false;
   }
   
@@ -1569,14 +1576,15 @@ LocalCode processRead(Tcb&b, ReceiveEv& e){
       while(readBytes < e.amount && !b.arrangedSegments.empty()){
         TcpSegmentSlice& slice = b.arrangedSegments.front();
         while(readBytes < e.amount){
-          e.providedBuffer.push_back(slice.unreadData.pop());
+          e.providedBuffer.push_back(slice.unreadData.front());
+          slice.unreadData.pop();
           readBytes++;
           b.arrangedSegmentsByteCount--;
-          appNewData++;
+          b.appNewData++;
         }
         
         if(slice.unreadData.size() == 0){
-          b.arrangedSegments.pop();
+          b.arrangedSegments.pop_front();
           if(slice.push){
             
             b.pushSeen = true;
@@ -1586,9 +1594,9 @@ LocalCode processRead(Tcb&b, ReceiveEv& e){
         
       }
       
-      if((b.rUp > b.appNewData){
+      if(b.rUp > b.appNewData){
         if(!b.urgentSignaled){
-          notifyApp(TcpCode::UrgentData);
+          notifyApp(b, TcpCode::UrgentData, e.id);
           b.urgentSignaled = true;
         }
       }
@@ -1626,7 +1634,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     if(b.arrangedSegmentsByteCount == 0){
-      notifyApp(TcpCode::ConnClosing);
+      notifyApp(b, TcpCode::ConnClosing, e.id);
       return LocalCode::Success;
     
     }
@@ -1639,14 +1647,15 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
     while(readBytes < upperBound && !b.arrangedSegments.empty()){
       TcpSegmentSlice& slice = b.arrangedSegments.front();
       while(readBytes < upperBound){
-        e.providedBuffer.push_back(slice.unreadData.pop());
+        e.providedBuffer.push_back(slice.unreadData.front());
+        slice.unreadData.pop();
         readBytes++;
         b.arrangedSegmentsByteCount--;
-        appNewData++;
+        b.appNewData++;
       }
         
       if(slice.unreadData.size() == 0){
-        b.arrangedSegments.pop();
+        b.arrangedSegments.pop_front();
         if(slice.push){
           b.pushSeen = true;
         }
@@ -1655,39 +1664,39 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
         
     }
       
-    if((b.rUp > b.appNewData){
+    if(b.rUp > b.appNewData){
       if(!b.urgentSignaled){
-        notifyApp(TcpCode::UrgentData);
+        notifyApp(b, TcpCode::UrgentData, e.id);
         b.urgentSignaled = true;
       }
     }
     else{
       b.urgentSignaled = false;
-      }
-  }
+    }
+  
     
-  return LocalCode::Success;
+    return LocalCode::Success;
 
 }
 
 
 LocalCode ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-  notifyApp(TcpCode::ConnClosing);
+  notifyApp(b,TcpCode::ConnClosing, e.id);
   return LocalCode::Success;
 
 }
 
 LocalCode LastAckS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-  notifyApp(TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, e.id);
   return LocalCode::Success;
 
 }
 
 LocalCode TimeWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
-  notifyApp(TcpCode::ConnClosing);
+  notifyApp(b, TcpCode::ConnClosing, e.id);
   return LocalCode::Success;
 
 }
@@ -1722,7 +1731,7 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
     bool ls = sendFin(socket,b);
-    b.currentState = FinWait1S();
+    b.currentState = make_shared<FinWait1S>();
     if(ls) return LocalCode::Success;
     else return LocalCode::Socket;
   }
@@ -1737,13 +1746,13 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
     bool ls = sendFin(socket,b);
-    b.currentState = FinWait1S();
+    b.currentState = make_shared<FinWait1S>();
     if(ls) return LocalCode::Success;
     else return LocalCode::Socket;
   }
   else{
     b.closeQueue.push_back(e);
-    b.currentState = FinWait1S();
+    b.currentState = make_shared<FinWait1S>();
     return LocalCode::Success;
   }
   
@@ -1763,13 +1772,13 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   if(b.sendQueue.empty()){
     bool ls = sendFin(socket,b);
-    b.currentState = LastAckS();
+    b.currentState = make_shared<LastAckS>();
     if(ls) return LocalCode::Success;
     else return LocalCode::Socket;
   }
   else{
     b.closeQueue.push_back(e);
-    b.currentState = LastAckS();
+    b.currentState = make_shared<LastAckS>();
     return LocalCode::Success;
   }
 
@@ -1817,7 +1826,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, AbortEv& e){
   return LocalCode::Success;
 }
 
-LocalCode normalAbortLogic(socket, Tcb& b, AbortEv& e){
+LocalCode normalAbortLogic(int socket, Tcb& b, AbortEv& e){
 
   bool ls = sendReset(socket, b.lP, b.rP, 0, false, b.sNxt);
   
@@ -1885,84 +1894,82 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
 }
 
 
-LocalCode send(int appId, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
+LocalCode send(int appId, int socket, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
 
   SendEv ev;
   ev.urgent = urgent;
   ev.data = data;
+  ConnPair p(lP,rP);
   
-  if(connections.contains(lP)){
-    if(connections[lP].contains(rP){
-      Tcb& oldConn = connections[lP][rP];
-      return oldConn.currentState.processEvent(socket, oldConn, ev); 
-    }
+  if(connections.find(p) != connections.end()){
+    Tcb& oldConn = connections[p];
+    return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists);
-  return Status();
+  notifyApp(appId,TcpCode::NoConnExists, ev.id);
+  return LocalCode::Success;
 
 }
 
-Status receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP){
+LocalCode receive(int appId, int socket, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP){
 
   ReceiveEv ev;
   ev.amount = amount;
   
-  if(connections.contains(lP)){
-    if(connections[lP].contains(rP){
-      Tcb& oldConn = connections[lP][rP];
-      return oldConn.currentState.processEvent(socket, oldConn, ev); 
-    }
+  ConnPair p(lP, rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists);
-  return Status();
+  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  return LocalCode::Success;
 
 }
 
-Status close(int appId, LocalPair lP, RemotePair rP){
+LocalCode close(int appId, int socket, LocalPair lP, RemotePair rP){
 
   CloseEv ev;
   
-  if(connections.contains(lP)){
-    if(connections[lP].contains(rP){
-      Tcb& oldConn = connections[lP][rP];
-      return oldConn.currentState.processEvent(socket, oldConn, ev); 
-    }
+  ConnPair p(lP, rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists);
-  return Status();
+  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  return LocalCode::Success;
 }
 
-Status abort(int appId, LocalPair lP, RemotePair rP){
+LocalCode abort(int appId, int socket, LocalPair lP, RemotePair rP){
 
   AbortEv ev;
-  
-  if(connections.contains(lP)){
-    if(connections[lP].contains(rP){
-      Tcb& oldConn = connections[lP][rP];
-      return oldConn.currentState.processEvent(socket, oldConn, ev); 
-    }
+  ConnPair p(lP,rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists);
-  return Status()
+  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  return LocalCode::Success;
 }
 
-Status open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId){
+LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
 
   OpenEv ev;
   ev.passive = passive;
   
   Tcb newConn(lP, rP, passive);
   if(passive){
-    newConn.currentState = ListenS();
+    newConn.currentState = make_shared<ListenS>();
   }
   else{
     //unspecified remote info in active open does not make sense
-    if(rP.first == Unspecified || rP.second == Unspecified) static_cast<int>(Code::ActiveUnspec);
-    newConn.currentState = SynSentS();
+    if(rP.first == Unspecified || rP.second == Unspecified){
+      notifyApp(appId, TcpCode::ActiveUnspec, ev.id);
+      return LocalCode::Success;
+    }
+    newConn.currentState = make_shared<SynSentS>();
   }
   
   if(lP.second == Unspecified){
@@ -1972,8 +1979,8 @@ Status open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId
       newConn.lP = lP;
     }
     else{
-      notifyApp(appId, TcpCode::Resources);
-      return Status();
+      notifyApp(appId, TcpCode::Resources, ev.id);
+      return LocalCode::Success;
     }
   }
   if(lP.first == Unspecified){
