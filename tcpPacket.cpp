@@ -163,6 +163,16 @@ TcpPacket& TcpPacket::setFlag(TcpPacketFlags flag){
   return *this;
 }
 
+
+uint16_t TcpPacket::calcSize(){
+  uint16_t optSize = 0;
+  for(auto iter = optionList.begin(); iter != optionList.end(); iter++){
+    optSize += iter->calcSize();
+  }
+  
+  return tcpMinHeaderLen + optSize + payload.size(); 
+
+}
 uint8_t TcpPacket::getDataOffset(){
 
 	return (dataOffReserved & 0xf0) >> 4;

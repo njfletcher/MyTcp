@@ -29,7 +29,7 @@ uint32_t getMmsS(){
 
 }
 
-bool bindSocket(uint32_t sourceAddr, int& socket){
+bool bindSocket(uint32_t sourceAddr, int& sRet){
   struct sockaddr_in serv;
   serv.sin_family = AF_INET;
   serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
@@ -47,7 +47,7 @@ bool bindSocket(uint32_t sourceAddr, int& socket){
     return false;
   }
   
-  socket = s;
+  sRet = s;
   return true;
 
 }
@@ -73,7 +73,6 @@ bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
 // goodPacket is a bool that represents whether or not the packet is a valid tcp/ip packet
 bool recPacket(int sock, IpPacket& packet, IpPacketCode& packetCode){
 
-  *numBytesInner = 0;
   ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
 	
   if(numRec < 0){

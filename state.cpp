@@ -25,7 +25,7 @@ using namespace std;
 //range from dynPortStart to dynPortEnd
 unordered_map<uint16_t,bool> usedPorts;
 //ids range from 0 to max val of int
-unordered_map<int, pair<LocalPair,RemotePair>> idMap;
+unordered_map<int, ConnPair> idMap;
 
 std::size_t ConnHash::operator()(const ConnPair& p) const {
   
@@ -59,13 +59,16 @@ uint16_t pickDynPort(){
 
 /*pickId
 picks an available id to map a connection to. 
-returns -1 for error or an id for success
+returns bool specifying whether it worked or not
 */
-int pickId(){
+bool pickId(int& id){
   for(int i = 0; i <= INT_MAX; i++){
-    if(idMap.find(i) == idMap.end()) return i;
+    if(idMap.find(i) == idMap.end()){
+      id = i;
+      return true;
+    }
   }
-  return -1;
+  return false;
 }
 
 /*
@@ -381,7 +384,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
       b.currentState = make_shared<SynSentS>();
       return LocalCode::Success;
     }
-    else LocalCode::Socket;
+    else return LocalCode::Socket;
     
   }
   else{
@@ -1989,45 +1992,43 @@ LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP,
     newConn.lP = lP;
   }
   
-  if(connections.contains(lP)){
+  ConnPair p(lP,rP);
+  if(connections.find(p) != connections.end()){
     //duplicate connection
-    if(connections[lP].contains(rP){
-      Tcb& oldConn = connections[lP][rP];
-      return oldConn.currentState.processEvent(socket, oldConn, ev); 
-    }
+    Tcb& oldConn = connections[p];
+    return oldConn.currentState->processEvent(socket, oldConn, ev); 
+    
   }
-  else connections[lP] = new unordered_map<RemotePair, Tcb>();
   
-  int id = pickId(s);
-  pair p(LocalPair,RemotePair);
-  if(id >= 0) idMap[id] = p;
+  int id = 0;
+  bool idWorked = pickId(id);
+  if(idWorked) idMap[id] = p;
   else{
-    notifyApp(appId,TcpCode::Resources);
-    return Status();
+    notifyApp(appId,TcpCode::Resources,ev.id);
+    return LocalCode::Success;
   }
     
   //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
     pickRealIsn(newConn);
   
-    LocalStatus ls = sendSyn(socket,b,b.lP,b.rP,false);
-    if(ls == LocalStatus::Success){
-      b.sUna = b.iss;
-      b.sNxt = b.iss + 1;
-      b.currentState = SynSentS();
+    bool ls = sendSyn(socket,newConn,newConn.lP,newConn.rP,false);
+    if(ls){
+      newConn.sUna = newConn.iss;
+      newConn.sNxt = newConn.iss + 1;
+      newConn.currentState = make_shared<SynSentS>();
     }
     else{
       reclaimId(id);
-      return Status(ls);
+      return LocalCode::Socket;
     }
 
-    
   }
   
   newConn.id = id;
-  connections[lP][rP] = newConn;
+  connections[p] = newConn;
   createdId = id;
-  return Status();
+  return LocalCode::Success;
   
 }
 
@@ -2066,23 +2067,26 @@ LocalCode multiplexIncoming(int socket, RemoteCode& remCode){
     LocalPair lP(sourceAddress, sourcePort);
     RemotePair rP(destAddress, destPort);
     
-    if(connections.contains(lP)){
-      if(connections[lP].contains(rP)){
-        return b.currentState.processEvent(socket,connections[lP][rP],ev, remCode);
-      }
-      RemotePair addrUnspec(Unspecified, rP.second);
-      if(connections[lP].contains(addrUnspec)){
-        return b.currentState.proccessEvent(socket,connections[lP][addrUnspec],ev, remCode);
-      }
-      RemotePair portUnspec(rP.first, Unspecified);
-      if(connections[lP].contains(portUnspec)){
-        return b.currentState.processEvent(socket,connections[lP][portUnspec],ev, remCode);
-      }
-      RemotePair fullUnspec(Unspecified, Unspecified);
-      if(connections[lP].contains(fullUnspec)){
-        return b.currentState.processEvent(socket,connections[lP][fullUnspec],ev, remCode);
-      }
+    ConnPair cPair(lP,rP);
+    if(connections.find(cPair) != connections.end()){
+      return connections[cPair].currentState->processEvent(socket,connections[cPair] ,ev, remCode);
     }
+    RemotePair addrUnspec(Unspecified, rP.second);
+    cPair.second = addrUnspec;
+    if(connections.find(cPair) != connections.end()){
+      return connections[cPair].currentState->processEvent(socket,connections[cPair],ev, remCode);
+    }
+    RemotePair portUnspec(rP.first, Unspecified);
+    cPair.second = portUnspec;
+    if(connections.find(cPair) != connections.end() ){
+      return connections[cPair].currentState->processEvent(socket,connections[cPair],ev, remCode);
+    }
+    RemotePair fullUnspec(Unspecified, Unspecified);
+    cPair.second = fullUnspec;
+    if(connections.find(cPair) != connections.end()){
+      return connections[cPair].currentState->processEvent(socket,connections[cPair],ev, remCode);
+    }
+    
     
     //if we've gotten to this point no conn exists: fictional closed state
     bool sent = false;

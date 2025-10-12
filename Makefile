@@ -1,6 +1,6 @@
 
 fuzzer: prog.o ipPacket.o tcpPacket.o state.o network.o
-	g++ -g prog.o packet.o state.o network.o -o fuzzer -lcrypto -lssl
+	g++ -g prog.o state.o ipPacket.o tcpPacket.o network.o -o fuzzer -lcrypto -lssl
 prog.o: prog.cpp
 	g++ -g -c prog.cpp
 ipPacket.o: ipPacket.cpp

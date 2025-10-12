@@ -72,7 +72,7 @@ class OpenEv : public Event{
 };
 class SegmentEv : public Event{
   public:
-    IpPacket& ipPacket;
+    IpPacket ipPacket;
 };
 
 class SendEv: public Event{
@@ -96,6 +96,7 @@ class Tcb{
 
   public:
     Tcb(LocalPair l, RemotePair r, bool passive);
+    Tcb() = default;
     
     int id = 0;
     
@@ -150,119 +151,121 @@ class Tcb{
 class State{
   
   public:
-    virtual LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    virtual LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    virtual LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    virtual LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    virtual LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    virtual LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    State() = default;
+    virtual ~State() = default;
+    virtual LocalCode processEvent(int socket, Tcb& b, OpenEv& oe) = 0;
+    virtual LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode) = 0;
+    virtual LocalCode processEvent(int socket, Tcb& b, SendEv& se) =0;
+    virtual LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se) =0;
+    virtual LocalCode processEvent(int socket, Tcb& b, CloseEv& se) =0;
+    virtual LocalCode processEvent(int socket, Tcb& b, AbortEv& se) =0;
 
 };
 
 class ListenS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe) override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class SynSentS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class SynRecS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class EstabS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class FinWait1S : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class FinWait2S : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
 };
 
 class CloseWaitS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class ClosingS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class LastAckS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class TimeWaitS : public State{
   public:
-    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe);
-    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
-    LocalCode processEvent(int socket, Tcb& b, SendEv& se);
-    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se);
-    LocalCode processEvent(int socket, Tcb& b, CloseEv& se);
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, OpenEv& oe)override;
+    LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
+    LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 LocalCode send(int appId, bool urgent, std::vector<uint8_t>& data, LocalPair lP, RemotePair rP);
 LocalCode receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP);
 LocalCode close(int appId, LocalPair lP, RemotePair rP);
 LocalCode abort(int appId, LocalPair lP, RemotePair rP);
-LocalCode open(int appId, bool passive, LocalPair lP, RemotePair rP, int& createdId);
+LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId);
 LocalCode entryTcp(char* sourceAddr);
 

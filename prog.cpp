@@ -20,8 +20,8 @@ int main(int argc, char* argv[]){
         int createdId = 0;
         LocalPair lp(0,0);
         RemotePair rp(0,0);
-  
-        LocalCode s = open(0, false, lp, rp, createdId);
+     
+        LocalCode s = open(0, 0, false, lp, rp, createdId);
 
 	return 0;
 }
