@@ -151,8 +151,8 @@ class Tcb{
 class State{
   
   public:
-    State() = default;
-    virtual ~State() = default;
+    State();
+    virtual ~State();
     virtual LocalCode processEvent(int socket, Tcb& b, OpenEv& oe) = 0;
     virtual LocalCode processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode) = 0;
     virtual LocalCode processEvent(int socket, Tcb& b, SendEv& se) =0;
@@ -219,7 +219,7 @@ class FinWait2S : public State{
     LocalCode processEvent(int socket, Tcb& b, SendEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
-    LocalCode processEvent(int socket, Tcb& b, AbortEv& se);
+    LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
 class CloseWaitS : public State{

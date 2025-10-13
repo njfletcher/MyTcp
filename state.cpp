@@ -27,6 +27,9 @@ unordered_map<uint16_t,bool> usedPorts;
 //ids range from 0 to max val of int
 unordered_map<int, ConnPair> idMap;
 
+State::State(){}
+State::~State(){}
+
 std::size_t ConnHash::operator()(const ConnPair& p) const {
   
   return std::hash<uint32_t>{}(p.first.first) ^
@@ -364,6 +367,8 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   sPacket.setRealChecksum(lp.first, rp.first);  
   return sendPacket(socket, rp.first, sPacket);
 }
+
+
 
 LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
