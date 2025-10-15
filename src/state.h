@@ -31,6 +31,11 @@ struct ConnHash{
 
 typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
 
+#ifdef TEST_NO_SEND
+  extern std::unordered_map<int, ConnPair> idMap;
+  extern ConnectionMap connections;
+#endif
+
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer

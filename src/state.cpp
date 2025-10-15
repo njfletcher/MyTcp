@@ -365,7 +365,11 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   
   sPacket.optionList = options;
   sPacket.setRealChecksum(lp.first, rp.first);  
-  return sendPacket(socket, rp.first, sPacket);
+  #ifdef TEST_NO_SEND
+    return true;
+  #else
+    return sendPacket(socket, rp.first, sPacket);
+  #endif
 }
 
 
