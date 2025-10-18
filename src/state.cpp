@@ -38,7 +38,7 @@ std::size_t ConnHash::operator()(const ConnPair& p) const {
   (std::hash<uint16_t>{}(p.second.second) << 3);
 }
 
-uint32_t bestLocalAddr;
+uint32_t bestLocalAddr=1;
 ConnectionMap connections;
 
 Tcb::Tcb(LocalPair l, RemotePair r, bool passive) : lP(l), rP(r), passiveOpen(passive){}
@@ -1966,6 +1966,12 @@ LocalCode abort(int appId, int socket, LocalPair lP, RemotePair rP){
   return LocalCode::Success;
 }
 
+/*
+open-
+Models an open event call from an app to a kernel.
+AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
+createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
+*/
 LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
 
   OpenEv ev;
