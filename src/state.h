@@ -19,8 +19,6 @@
 class Tcb;
 class State;
 
-
-
 typedef std::pair<uint32_t, uint16_t> LocalPair;
 typedef std::pair<uint32_t, uint16_t> RemotePair;
 typedef std::pair<LocalPair, RemotePair> ConnPair;
@@ -32,6 +30,7 @@ struct ConnHash{
 typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
 
 #ifdef TEST_NO_SEND
+  //maps connection id to connPair
   extern std::unordered_map<int, ConnPair> idMap;
   extern ConnectionMap connections;
 #endif
@@ -97,13 +96,24 @@ class CloseEv: public Event{};
 
 class AbortEv: public Event{};
 
+
+class App{
+
+  public:
+    int id;
+    std::deque<int> appNotifs;
+    std::unordered_map<int, std::deque<int> > connNotifs;
+
+};
+
 class Tcb{
 
   public:
-    Tcb(LocalPair l, RemotePair r, bool passive);
+    Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
     
     int id = 0;
+    App* parentApp;
     
     //all multi-byte fields are guaranteed to be in host order.
     LocalPair lP;
@@ -267,10 +277,10 @@ class TimeWaitS : public State{
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
 };
 
-LocalCode send(int appId, bool urgent, std::vector<uint8_t>& data, LocalPair lP, RemotePair rP);
-LocalCode receive(int appId, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP);
-LocalCode close(int appId, LocalPair lP, RemotePair rP);
-LocalCode abort(int appId, LocalPair lP, RemotePair rP);
-LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId);
+LocalCode send(App* app, bool urgent, std::vector<uint8_t>& data, LocalPair lP, RemotePair rP);
+LocalCode receive(App* app, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP);
+LocalCode close(App* app, LocalPair lP, RemotePair rP);
+LocalCode abort(App* app, LocalPair lP, RemotePair rP);
+LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId);
 LocalCode entryTcp(char* sourceAddr);
 

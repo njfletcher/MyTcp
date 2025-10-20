@@ -41,7 +41,7 @@ std::size_t ConnHash::operator()(const ConnPair& p) const {
 uint32_t bestLocalAddr=1;
 ConnectionMap connections;
 
-Tcb::Tcb(LocalPair l, RemotePair r, bool passive) : lP(l), rP(r), passiveOpen(passive){}
+Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive){}
 
 /*pickDynPort 
 picks an unused port from the dynamic range
@@ -224,16 +224,16 @@ void printTcpCode(TcpCode c){
   cout << s << endl;
 }
 
-//TODO: write code and message to file somewhere
-//simulates passing a passing an info/error message to any hooked up applications.
-//also a way to log errors in the program/
+
+//simulates passing a passing an info/error message to a connection that belongs to a hooked up application.
 void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
-  return;
+  b.parentApp->connNotifs[b.id].push_back(static_cast<int>(c));
+}
+//simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
+void notifyApp(App* app, TcpCode c, uint32_t eId){
+  app->appNotifs.push_back(static_cast<int>(c));
 }
 
-void notifyApp(uint32_t appId, TcpCode c, uint32_t eId){
-  return;
-}
 
 //TODO: research tcp security/compartment and how this check should work
 bool checkSecurity(Tcb& b, IpPacket& p){
@@ -1906,7 +1906,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
 }
 
 
-LocalCode send(int appId, int socket, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
+LocalCode send(App* app, int socket, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP){
 
   SendEv ev;
   ev.urgent = urgent;
@@ -1918,12 +1918,12 @@ LocalCode send(int appId, int socket, bool urgent, vector<uint8_t>& data, LocalP
     return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId,TcpCode::NoConnExists, ev.id);
+  notifyApp(app,TcpCode::NoConnExists, ev.id);
   return LocalCode::Success;
 
 }
 
-LocalCode receive(int appId, int socket, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP){
+LocalCode receive(App* app, int socket, bool urgent, uint32_t amount, LocalPair lP, RemotePair rP){
 
   ReceiveEv ev;
   ev.amount = amount;
@@ -1934,12 +1934,12 @@ LocalCode receive(int appId, int socket, bool urgent, uint32_t amount, LocalPair
       return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  notifyApp(app, TcpCode::NoConnExists, ev.id);
   return LocalCode::Success;
 
 }
 
-LocalCode close(int appId, int socket, LocalPair lP, RemotePair rP){
+LocalCode close(App* app, int socket, LocalPair lP, RemotePair rP){
 
   CloseEv ev;
   
@@ -1949,11 +1949,11 @@ LocalCode close(int appId, int socket, LocalPair lP, RemotePair rP){
       return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  notifyApp(app, TcpCode::NoConnExists, ev.id);
   return LocalCode::Success;
 }
 
-LocalCode abort(int appId, int socket, LocalPair lP, RemotePair rP){
+LocalCode abort(App* app, int socket, LocalPair lP, RemotePair rP){
 
   AbortEv ev;
   ConnPair p(lP,rP);
@@ -1962,7 +1962,7 @@ LocalCode abort(int appId, int socket, LocalPair lP, RemotePair rP){
       return oldConn.currentState->processEvent(socket, oldConn, ev); 
   }  
   
-  notifyApp(appId, TcpCode::NoConnExists, ev.id);
+  notifyApp(app, TcpCode::NoConnExists, ev.id);
   return LocalCode::Success;
 }
 
@@ -1972,19 +1972,19 @@ Models an open event call from an app to a kernel.
 AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
 createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
 */
-LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
+LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
 
   OpenEv ev;
   ev.passive = passive;
   
-  Tcb newConn(lP, rP, passive);
+  Tcb newConn(app, lP, rP, passive);
   if(passive){
     newConn.currentState = make_shared<ListenS>();
   }
   else{
     //unspecified remote info in active open does not make sense
     if(rP.first == Unspecified || rP.second == Unspecified){
-      notifyApp(appId, TcpCode::ActiveUnspec, ev.id);
+      notifyApp(app, TcpCode::ActiveUnspec, ev.id);
       return LocalCode::Success;
     }
     newConn.currentState = make_shared<SynSentS>();
@@ -1997,7 +1997,7 @@ LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP,
       newConn.lP = lP;
     }
     else{
-      notifyApp(appId, TcpCode::Resources, ev.id);
+      notifyApp(app, TcpCode::Resources, ev.id);
       return LocalCode::Success;
     }
   }
@@ -2019,7 +2019,7 @@ LocalCode open(int appId, int socket, bool passive, LocalPair lP, RemotePair rP,
   bool idWorked = pickId(id);
   if(idWorked) idMap[id] = p;
   else{
-    notifyApp(appId,TcpCode::Resources,ev.id);
+    notifyApp(app,TcpCode::Resources,ev.id);
     return LocalCode::Success;
   }
     
