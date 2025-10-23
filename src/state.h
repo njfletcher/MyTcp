@@ -101,9 +101,8 @@ class App{
 
   public:
     int id;
-    std::deque<int> appNotifs;
-    std::unordered_map<int, std::deque<int> > connNotifs;
-
+    std::deque<TcpCode> appNotifs;
+    std::unordered_map<int, std::deque<TcpCode> > connNotifs;
 };
 
 class Tcb{

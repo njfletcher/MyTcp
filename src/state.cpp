@@ -227,11 +227,11 @@ void printTcpCode(TcpCode c){
 
 //simulates passing a passing an info/error message to a connection that belongs to a hooked up application.
 void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
-  b.parentApp->connNotifs[b.id].push_back(static_cast<int>(c));
+  b.parentApp->connNotifs[b.id].push_back(c);
 }
 //simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
 void notifyApp(App* app, TcpCode c, uint32_t eId){
-  app->appNotifs.push_back(static_cast<int>(c));
+  app->appNotifs.push_back(c);
 }
 
 
@@ -378,11 +378,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
   bool passive = oe.passive;
   if(!passive){
-    if(b.rP.first == Unspecified || b.rP.second == Unspecified){
-      notifyApp(b, TcpCode::ActiveUnspec, oe.id);
-      return LocalCode::Success;
-    }
-    
+    //no need to check for active unspec again, outer open call already does it
     pickRealIsn(b);
     
     bool ls = sendSyn(socket, b, b.lP, b.rP, false);
