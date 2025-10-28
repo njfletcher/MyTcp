@@ -1,6 +1,10 @@
 
-test: tests/testConnections.cpp src/ipPacket.cpp src/tcpPacket.cpp src/state.cpp src/network.cpp
-	g++ -g -DTEST_NO_SEND tests/testConnections.cpp src/state.cpp src/ipPacket.cpp src/tcpPacket.cpp src/network.cpp -o test -lcrypto -lssl
+testConn: tests/testConnections.cpp src/ipPacket.cpp src/tcpPacket.cpp src/state.cpp src/network.cpp
+	g++ -g -DTEST_NO_SEND tests/testConnections.cpp src/state.cpp src/ipPacket.cpp src/tcpPacket.cpp src/network.cpp -o testConn -lcrypto -lssl
+	
+testTcpPacket: tests/testTcpPacket.cpp src/ipPacket.cpp src/tcpPacket.cpp src/state.cpp src/network.cpp
+	g++ -g -DTEST_NO_SEND tests/testTcpPacket.cpp src/state.cpp src/ipPacket.cpp src/tcpPacket.cpp src/network.cpp -o testTcpPacket -lcrypto -lssl
+	
 	
 fuzzer: prog.o ipPacket.o tcpPacket.o state.o network.o
 	g++ -g prog.o state.o ipPacket.o tcpPacket.o network.o -o fuzzer -lcrypto -lssl

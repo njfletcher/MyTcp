@@ -1,4 +1,5 @@
 
+#include "test.h"
 #define TEST_NO_SEND 1
 #include "../src/state.h"
 #include <iostream>
@@ -21,24 +22,6 @@ void clear(){
   connections.clear();
   idMap.clear();
 }
-
-#define assert(call, errorMsg) \
-  if(!(call)){\
-    cout << errorMsg << endl;\
-    return false;\
-  }\
-  
-#define test(call) \
-  totalTests++; \
-  if(call){\
-      testsPassed++;\
-      cout << "PASSED" << endl;\
-  }\
-  else{\
-      cout << "FAILED" << endl;\
-  }\
-  clear();\
-
 
 bool testOpenComplete(bool passive){
 
@@ -73,7 +56,7 @@ bool testOpenComplete(bool passive){
       assert(dynamic_cast<SynSentS*>(&testS), "Should be in syn sent state")
     }
     
-    
+    clear();
     return true;
 }
 
@@ -99,7 +82,7 @@ bool testOpenRemUnspec(bool passive){
     else{
       assert(connections.find(cPair) != connections.end() && idMap.size() > 0, "Connection should have been made in open with unspec remote")
     }
-  
+    clear();
     return true;
 }
 
@@ -124,6 +107,7 @@ bool testOpenLocUnspec(){
     Tcb& b = connections.begin()->second;
     assert(b.lP.first != Unspecified && b.lP.second != Unspecified, "local unspecified not filled in ")
     
+    clear();
     return true;
 
 }
@@ -163,7 +147,7 @@ bool testListenOpen(bool passive){
       assert(!bAfter.passiveOpen, "Should have no passive indication after switch to active")
     }
     
-    
+    clear();
     return true;
 }
 
@@ -179,7 +163,7 @@ bool testListenOpenActiveRemUnspec(){
     b.currentState = make_shared<ListenS>();
     b.id = testConnId;
     ConnPair cPair(lp,rp);
-    connections[cPair] = b;
+    connections[cPair] = b; 
     
     int createdId = 0;
     LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
@@ -192,7 +176,8 @@ bool testListenOpenActiveRemUnspec(){
     assert(bAfter.passiveOpen, "Should stay as passive open")
     assert(dynamic_cast<ListenS*>(&testS), "Should still be in listen state")
     assert((a.appNotifs.size() > 0) && (a.appNotifs.front() == TcpCode::ActiveUnspec) , "Conn should have active unspec notif")
-      
+    
+    clear();
     return true;
 }
 
@@ -207,8 +192,6 @@ int main(int argc, char** argv){
   test(testListenOpen(false))
   test(testListenOpenActiveRemUnspec())
   
-
   cout << testsPassed << " tests passed out of " << totalTests << endl;
   return 0;
-  
 }

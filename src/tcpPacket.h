@@ -92,6 +92,7 @@ class TcpPacket{
     bool getFlag(TcpPacketFlags flag);
     uint8_t getDataOffset();
     uint8_t getReserved();
+    uint16_t getChecksum();
     
     std::vector<uint8_t> payload;
     std::vector<TcpOption> optionList;

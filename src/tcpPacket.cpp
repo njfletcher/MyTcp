@@ -216,6 +216,10 @@ uint32_t TcpPacket::getSegSize(){
   return payload.size() + getFlag(TcpPacketFlags::syn) + getFlag(TcpPacketFlags::fin);
 }
 
+uint16_t TcpPacket::getChecksum(){
+  return checksum;
+}
+
 TcpPacket& TcpPacket::setSrcPort(uint16_t source){
   sourcePort = source;
   return *this;
