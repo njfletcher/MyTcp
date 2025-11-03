@@ -69,7 +69,7 @@ bool TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes
   }
 
   //at this point it is either the mss option or some other option. either way this option will have to have a length field according to RFC 9293 MUST68
-  if(numBytesRemaining < 2) false;
+  if(numBytesRemaining < 2) return false;
   
   uint8_t len = buffer[1];
   //length field includes itself and the kind byte. Anything less than 2 doesnt make sense
