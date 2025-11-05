@@ -94,6 +94,11 @@ class IpPacket{
     uint8_t getEcn();
     uint8_t getFlag(IpPacketFlags flag);
     uint16_t getFragOffset();
+    uint16_t getTotalLength();
+    uint16_t getIdent();
+    uint8_t getTtl();
+    uint8_t getProto();
+    uint16_t getChecksum();
     
     uint32_t getOptionListByteCount();
     

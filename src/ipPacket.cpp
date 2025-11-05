@@ -163,6 +163,12 @@ uint16_t IpPacket::getFragOffset(){
   return (flagsFragOffset & 0x01FFF);
 }
 
+uint16_t IpPacket::getTotalLength(){ return totalLength;}
+uint16_t IpPacket::getIdent(){ return identification;}
+uint8_t IpPacket::getTtl(){ return ttl;}
+uint8_t IpPacket::getProto(){return protocol;}
+uint16_t IpPacket::getChecksum(){return headerChecksum;}
+
 
 void IpPacket::print(){
 
@@ -252,7 +258,9 @@ IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   vector<IpOption> options;
   
+ 
   if(ihlConv > 20){
+    
     int optionBytesRemaining = ihlConv - ipMinHeaderLen;
     while(optionBytesRemaining > 0){
         IpOption o;

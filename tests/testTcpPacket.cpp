@@ -122,7 +122,7 @@ bool testStandardOptionPacket(){
   assert(buff.size() == buffSize, "Output buff has wrong size")
   
   bool buffsMatch = true;
-  for(int i = 0; i < tcpMinHeaderLen; i++){
+  for(int i = 0; i < buffSize; i++){
     if(buff[i] != buffer[i]){
       buffsMatch = false;
       break;
@@ -165,7 +165,7 @@ bool testUnimplementedOptionPacket(){
   assert(buff.size() == buffSize, "Output buff has wrong size")
   
   bool buffsMatch = true;
-  for(int i = 0; i < tcpMinHeaderLen; i++){
+  for(int i = 0; i < buffSize; i++){
     if(buff[i] != buffer[i]){
       buffsMatch = false;
       break;
