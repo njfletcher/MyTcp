@@ -19,6 +19,7 @@ add_executable(
 	allTests
 	testTcpPacket.cc
 	testIpPacket.cc
+	testTcpIpPacket.cc
 	testOpen.cc
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp
