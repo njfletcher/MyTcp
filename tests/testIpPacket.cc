@@ -1,20 +1,14 @@
-
-#include "test.h"
+#include <gtest/gtest.h>
 #define TEST_NO_SEND 1
 #include "../src/state.h"
 #include "../src/tcpPacket.h"
 #include "../src/ipPacket.h"
 #include <iostream>
 
-int testsPassed = 0;
-int totalTests = 0;
-
 using namespace std;
 
-bool testStandardPacket(){
+TEST(StandardIPPacket, GoodPacketNoOptions){
 
-  cout << "Testing standard ip packet" << endl;
-  
   uint8_t buffer[ipMinHeaderLen] = { 0x45, 
                                       0b10101011, 
                                    0x00, 0x14, 
@@ -24,29 +18,27 @@ bool testStandardPacket(){
                                    0x34,
                                    0x56,0x78,
                                    0x12,0x34,0x56,0x78,
-                                   0x87,0x65,0x43,0x21
-                                   
-                                   
+                                   0x87,0x65,0x43,0x21                 
                                  };
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, ipMinHeaderLen);
-  assert(c == IpPacketCode::Success || c == IpPacketCode::Payload, "Packet parse failed")
-  assert(p.getVersion() == 0x4, "Wrong version")
-  assert(p.getIHL() == 0x5, "Wrong header len")
-  assert(p.getDscp() == 0b00101010, "Wrong dscp")
-  assert(p.getEcn() == 0b00000011, "Wrong ecn")
-  assert(p.getTotalLength() == 0x0014, "Wrong total length")
-  assert(p.getIdent() == 0x4321, "Wrong identification")
-  assert(!p.getFlag(IpPacketFlags::reserved), "Wrong res flag")
-  assert(p.getFlag(IpPacketFlags::dontFrag), "Wrong dont frag flag")
-  assert(p.getFlag(IpPacketFlags::moreFrag), "Wrong more frag flag")
-  assert(p.getFragOffset() == 0b0001110110101010, "Wrong frag offset")
-  assert(p.getTtl() == 0x12, "Wrong ttl")
-  assert(p.getProto() == 0x34, "Wrong protocol")
-  assert(p.getChecksum() == 0x5678, "Wrong checksum")
-  assert(p.getSrcAddr() == 0x12345678, "Wrong src addr")
-  assert(p.getDestAddr() == 0x87654321, "Wrong dest addr")
+  ASSERT_TRUE((c  ==  IpPacketCode::Success) || (c  ==  IpPacketCode::Payload));
+  EXPECT_EQ(p.getVersion()  ,  0x4);
+  EXPECT_EQ(p.getIHL()  ,  0x5);
+  EXPECT_EQ(p.getDscp()  ,  0b00101010);
+  EXPECT_EQ(p.getEcn()  ,  0b00000011);
+  EXPECT_EQ(p.getTotalLength()  ,  0x0014);
+  EXPECT_EQ(p.getIdent()  ,  0x4321);
+  EXPECT_FALSE(p.getFlag(IpPacketFlags::reserved));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::dontFrag));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::moreFrag));
+  EXPECT_EQ(p.getFragOffset()  ,  0b0001110110101010);
+  EXPECT_EQ(p.getTtl()  ,  0x12);
+  EXPECT_EQ(p.getProto()  ,  0x34);
+  EXPECT_EQ(p.getChecksum()  ,  0x5678);
+  EXPECT_EQ(p.getSrcAddr()  ,  0x12345678);
+  EXPECT_EQ(p.getDestAddr()  ,  0x87654321);
   
   vector<uint8_t> buff;
   p.toBuffer(buff); 
@@ -57,15 +49,12 @@ bool testStandardPacket(){
       break;
     }
   }
-  assert(buffsMatch, "Input and Output buffers dont match")
-  
-  return true;
+  EXPECT_TRUE(buffsMatch);
 }
 
 
-bool testStandardOptionPacket(){
+TEST(StandardIPPacket, GoodPacketDefinedOptions){
 
-  cout << "Testing standard option ip packet" << endl;
   const int buffSize = ipMinHeaderLen + 8;
   uint8_t buffer[buffSize] = { 0x47, 
                                       0b10101011, 
@@ -84,30 +73,46 @@ bool testStandardOptionPacket(){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  assert(c == IpPacketCode::Success || c == IpPacketCode::Payload, "Packet parse failed")
-  assert(p.getVersion() == 0x4, "Wrong version")
-  assert(p.getIHL() == 0x7, "Wrong header len")
-  assert(p.getDscp() == 0b00101010, "Wrong dscp")
-  assert(p.getEcn() == 0b00000011, "Wrong ecn")
-  assert(p.getTotalLength() == 0x001C, "Wrong total length")
-  assert(p.getIdent() == 0x4321, "Wrong identification")
-  assert(!p.getFlag(IpPacketFlags::reserved), "Wrong res flag")
-  assert(p.getFlag(IpPacketFlags::dontFrag), "Wrong dont frag flag")
-  assert(p.getFlag(IpPacketFlags::moreFrag), "Wrong more frag flag")
-  assert(p.getFragOffset() == 0b0001110110101010, "Wrong frag offset")
-  assert(p.getTtl() == 0x12, "Wrong ttl")
-  assert(p.getProto() == 0x34, "Wrong protocol")
-  assert(p.getChecksum() == 0x5678, "Wrong checksum")
-  assert(p.getSrcAddr() == 0x12345678, "Wrong src addr")
-  assert(p.getDestAddr() == 0x87654321, "Wrong dest addr")
+  ASSERT_TRUE((c  ==  IpPacketCode::Success) || (c  ==  IpPacketCode::Payload));
+  EXPECT_EQ(p.getVersion()  ,  0x4);
+  EXPECT_EQ(p.getIHL()  ,  0x7);
+  EXPECT_EQ(p.getDscp()  ,  0b00101010);
+  EXPECT_EQ(p.getEcn()  ,  0b00000011);
+  EXPECT_EQ(p.getTotalLength()  ,  0x001C);
+  EXPECT_EQ(p.getIdent()  ,  0x4321);
+  EXPECT_FALSE(p.getFlag(IpPacketFlags::reserved));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::dontFrag));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::moreFrag));
+  EXPECT_EQ(p.getFragOffset()  ,  0b0001110110101010);
+  EXPECT_EQ(p.getTtl()  ,  0x12);
+  EXPECT_EQ(p.getProto()  ,  0x34);
+  EXPECT_EQ(p.getChecksum()  ,  0x5678);
+  EXPECT_EQ(p.getSrcAddr()  ,  0x12345678);
+  EXPECT_EQ(p.getDestAddr()  ,  0x87654321);
   
-  assert(p.optionList.size() == 3, "Incorrect number of options")
+  ASSERT_EQ(p.optionList.size()  ,  3);
   IpOption& firstOpt = p.optionList[0];
-  assert((firstOpt.type == static_cast<uint8_t>(IpOptionType::ts)) && (firstOpt.length == 6) && (firstOpt.data.size() == 4) && (firstOpt.data[0] = 0x10) && (firstOpt.data[1] == 0x20) && (firstOpt.data[2] == 0x30) && (firstOpt.data[3] == 0x40), "First Option incorrect")
+  EXPECT_TRUE(
+    (firstOpt.type  ==  static_cast<uint8_t>(IpOptionType::ts)) 
+    && (firstOpt.length  ==  6) 
+    && (firstOpt.data.size()  ==  4) 
+    && (firstOpt.data[0] == 0x10) 
+    && (firstOpt.data[1]  ==  0x20) 
+    && (firstOpt.data[2]  ==  0x30) 
+    && (firstOpt.data[3] ==  0x40)
+  );
   IpOption& secOpt = p.optionList[1];
-  assert((secOpt.type == static_cast<uint8_t>(IpOptionType::nop)) && (!secOpt.hasLength) && (secOpt.data.size() == 0), "Second Option incorrect")
+  EXPECT_TRUE(
+    (secOpt.type  ==  static_cast<uint8_t>(IpOptionType::nop)) 
+    && (!secOpt.hasLength) 
+    && (secOpt.data.size()  == 0)
+  );
   IpOption& thirdOpt = p.optionList[2];
-  assert((thirdOpt.type == static_cast<uint8_t>(IpOptionType::eool)) && (!thirdOpt.hasLength) && (thirdOpt.data.size() == 0), "Third Option incorrect")
+  EXPECT_TRUE(
+    (thirdOpt.type  ==  static_cast<uint8_t>(IpOptionType::eool)) 
+    && (!thirdOpt.hasLength) 
+    && (thirdOpt.data.size()  ==  0)
+  );
   
   vector<uint8_t> buff;
   p.toBuffer(buff);
@@ -119,15 +124,11 @@ bool testStandardOptionPacket(){
       break;
     }
   }
-  assert(buffsMatch, "Input and Output buffers dont match")
-  
-  return true;
+  EXPECT_TRUE(buffsMatch);
 }
 
-bool testUnimplementedOptionPacket(){
+TEST(StandardIPPacket, GoodPacketUndefinedOption){
 
-
-  cout << "Testing ip packet with unimplemented option" << endl;
   const int buffSize = ipMinHeaderLen + 8;
   uint8_t buffer[buffSize] = { 0x47, 
                                       0b10101011, 
@@ -146,15 +147,31 @@ bool testUnimplementedOptionPacket(){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  assert(c == IpPacketCode::Success || c == IpPacketCode::Payload, "Packet parse failed")
+  ASSERT_TRUE((c  ==  IpPacketCode::Success) || (c  ==  IpPacketCode::Payload));
   
-  assert(p.optionList.size() == 3, "Incorrect number of options")
+  ASSERT_EQ(p.optionList.size()  ,  3);
   IpOption& firstOpt = p.optionList[0];
-  assert((firstOpt.type == 0x3) && (firstOpt.length == 6) && (firstOpt.data.size() == 4) && (firstOpt.data[0] = 0x10) && (firstOpt.data[1] == 0x20) && (firstOpt.data[2] == 0x30) && (firstOpt.data[3] == 0x40), "First Option incorrect")
+  EXPECT_TRUE(
+    (firstOpt.type  ==  0x3) 
+    && (firstOpt.length  ==  6) 
+    && (firstOpt.data.size()  ==  4) 
+    && (firstOpt.data[0] == 0x10) 
+    && (firstOpt.data[1]  ==  0x20) 
+    && (firstOpt.data[2]  ==  0x30) 
+    && (firstOpt.data[3]  ==  0x40)
+  );
   IpOption& secOpt = p.optionList[1];
-  assert((secOpt.type == static_cast<uint8_t>(IpOptionType::nop)) && (!secOpt.hasLength) && (secOpt.data.size() == 0), "Second Option incorrect")
+  EXPECT_TRUE(
+    (secOpt.type  ==  static_cast<uint8_t>(IpOptionType::nop)) 
+    && (!secOpt.hasLength) 
+    && (secOpt.data.size()  ==  0)
+  );
   IpOption& thirdOpt = p.optionList[2];
-  assert((thirdOpt.type == static_cast<uint8_t>(IpOptionType::eool)) && (!thirdOpt.hasLength) && (thirdOpt.data.size() == 0), "Third Option incorrect")
+  EXPECT_TRUE(
+    (thirdOpt.type  ==  static_cast<uint8_t>(IpOptionType::eool)) 
+    && (!thirdOpt.hasLength) 
+    && (thirdOpt.data.size()  ==  0)
+  );
   
   vector<uint8_t> buff;
   p.toBuffer(buff);
@@ -166,16 +183,12 @@ bool testUnimplementedOptionPacket(){
       break;
     }
   }
-  assert(buffsMatch, "Input and Output buffers dont match")
-  
-  return true;
+  EXPECT_TRUE(buffsMatch);
 }
 
-bool testEarlyEndOptionPacket(){
+TEST(StandardIPPacket, GoodPacketEarlyEndOption){
 
-  const int buffSize = ipMinHeaderLen + 4;
-  cout << "Testing standard ip packet with early end option" << endl;
-  
+  const int buffSize = ipMinHeaderLen + 4;  
   uint8_t buffer[buffSize] = { 0x46, 
                                       0b10101011, 
                                    0x00, 0x18, 
@@ -194,20 +207,21 @@ bool testEarlyEndOptionPacket(){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  assert(c == IpPacketCode::Success || c == IpPacketCode::Payload, "Packet parse failed")
+  ASSERT_TRUE((c  ==  IpPacketCode::Success) || (c  ==  IpPacketCode::Payload));
   
-  assert(p.optionList.size() == 1, "Incorrect number of options")
+  ASSERT_EQ(p.optionList.size()  ,  1);
   IpOption& firstOpt = p.optionList[0];
-  assert((firstOpt.type == static_cast<uint8_t>(IpOptionType::eool)) && (!firstOpt.hasLength) && (firstOpt.data.size() == 0), "First Option incorrect")
+  EXPECT_TRUE(
+    (firstOpt.type  ==  static_cast<uint8_t>(IpOptionType::eool)) 
+    && (!firstOpt.hasLength) 
+    && (firstOpt.data.size() == 0)
+  );
   
-  return true;
 }
 
-bool testHeaderOvershootPacket(){
+TEST(StandardIPPacket, BadPacketPacketOvershoot){
 
   const int buffSize = tcpMinHeaderLen + 4;
-  cout << "Testing packet that overshoots buffer" << endl;
- 
   uint8_t buffer[buffSize] = { 0x4F, 
                                       0b10101011, 
                                    0x00, 0x18, 
@@ -226,16 +240,13 @@ bool testHeaderOvershootPacket(){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  assert(c == IpPacketCode::Header, "Packet parse should have failed")
- 
-  return true;
+  ASSERT_EQ(c  ,  IpPacketCode::Header);
+  
 }
 
-bool testOptionOvershootPacket(){
+TEST(StandardIPPacket, BadPacketOptionOvershoot){
 
   const int buffSize = tcpMinHeaderLen + 4;
-  cout << "Testing packet with option that overshoots data" << endl;
- 
   uint8_t buffer[buffSize] = { 0x46, 
                                       0b10101011, 
                                    0x00, 0x18, 
@@ -251,18 +262,7 @@ bool testOptionOvershootPacket(){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  assert(c == IpPacketCode::Header, "Packet parse should have failed")
+  ASSERT_EQ(c  ,  IpPacketCode::Header);
  
-  return true;
 }
 
-int main(int argc, char** argv){
-  test(testStandardPacket())
-  test(testStandardOptionPacket())
-  test(testUnimplementedOptionPacket())
-  test(testEarlyEndOptionPacket())
-  test(testHeaderOvershootPacket())
-  test(testOptionOvershootPacket())
-  cout << testsPassed << " tests passed out of " << totalTests << endl;
-  return 0;
-}

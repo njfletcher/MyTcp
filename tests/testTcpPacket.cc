@@ -95,7 +95,7 @@ TEST(StandardTCPPacket, GoodPacketDefinedOptions){
   EXPECT_EQ(p.getChecksum()  ,  0x3647);
   EXPECT_EQ(p.getUrg()  ,  0x1122);
   
-  EXPECT_EQ(p.optionList.size()  ,  5);
+  ASSERT_EQ(p.optionList.size()  ,  5);
   TcpOption& firstOpt = p.optionList[0];
   EXPECT_TRUE(
     (firstOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::mss)) 
@@ -162,7 +162,7 @@ TEST(StandardTCPPacket, GoodPacketUndefinedOptions){
   TcpPacket p;
   TcpPacketCode c = p.fromBuffer(buffer, buffSize);
   ASSERT_EQ(c  ,  TcpPacketCode::Success);
-  EXPECT_EQ(p.optionList.size()  ,  2);
+  ASSERT_EQ(p.optionList.size()  ,  2);
   TcpOption& firstOpt = p.optionList[0];
   EXPECT_TRUE(
     (firstOpt.kind  ==  0xFF) 
@@ -212,7 +212,7 @@ TEST(StandardTCPPacket, GoodPacketEarlyEndOption){
   TcpPacket p;
   TcpPacketCode c = p.fromBuffer(buffer, buffSize);
   ASSERT_EQ(c  ,  TcpPacketCode::Success);
-  EXPECT_EQ(p.optionList.size()  ,  1);
+  ASSERT_EQ(p.optionList.size()  ,  1);
   TcpOption& firstOpt = p.optionList[0];
   EXPECT_TRUE(
     (firstOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::end)) 

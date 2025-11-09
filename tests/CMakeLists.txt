@@ -18,8 +18,9 @@ enable_testing()
 add_executable(
 	allTests
 	testTcpPacket.cc
+	testIpPacket.cc
 	../src/tcpPacket.cpp
-	
+	../src/ipPacket.cpp
 )
 
 target_link_libraries(
