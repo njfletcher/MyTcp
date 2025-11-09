@@ -19,12 +19,18 @@ add_executable(
 	allTests
 	testTcpPacket.cc
 	testIpPacket.cc
+	testConnections.cc
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp
+	../src/state.cpp
+	../src/network.cpp
+	
 )
 
 target_link_libraries(
 	allTests
+	crypto
+	ssl
 	GTest::gtest_main
 )
 
