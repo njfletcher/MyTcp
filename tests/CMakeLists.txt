@@ -19,13 +19,14 @@ add_executable(
 	allTests
 	testTcpPacket.cc
 	testIpPacket.cc
-	testConnections.cc
+	testOpen.cc
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp
 	../src/state.cpp
 	../src/network.cpp
 	
 )
+add_definitions(-DTEST_NO_SEND=1)
 
 target_link_libraries(
 	allTests

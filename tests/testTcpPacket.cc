@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#define TEST_NO_SEND 1
 #include "../src/state.h"
 #include "../src/tcpPacket.h"
 #include <iostream>

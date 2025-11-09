@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#define TEST_NO_SEND 1
 #include "../src/state.h"
 #include <iostream>
 
@@ -14,7 +13,7 @@ const unsigned int testLocPort = 1;
 const unsigned int testRemIp = 1;
 const unsigned int testRemPort = 1;
 
-class ConnectionTestFixture : public testing::Test{
+class OpenTestFixture : public testing::Test{
 
   void TearDown() override{
     connections.clear();
@@ -22,35 +21,7 @@ class ConnectionTestFixture : public testing::Test{
   }
 };
 
-
-TEST_F(ConnectionTestFixture, OpenCompletePassive){
-
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
-    int createdId = 0;
-    App a;
-    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
-    
-    ASSERT_EQ(lc , LocalCode::Success);
-  
-    ConnPair cPair(lp,rp);
-    
-    ASSERT_NE(connections.find(cPair) , connections.end());
-    EXPECT_TRUE(idMap.size() > 0);
-    
-    EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
-    
-    Tcb& b = connections[cPair];
-    
-    State& testS = *b.currentState;
-    
-    
-    EXPECT_TRUE(b.passiveOpen);
-    ASSERT_TRUE(dynamic_cast<ListenS*>(&testS));
-}
-
-TEST_F(ConnectionTestFixture, OpenCompleteActive){
+TEST_F(OpenTestFixture, OpenCompleteActive){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -77,7 +48,36 @@ TEST_F(ConnectionTestFixture, OpenCompleteActive){
     
 }
 
-TEST_F(ConnectionTestFixture, OpenRemUnspecPassive){
+TEST_F(OpenTestFixture, OpenCompletePassive){
+
+    LocalPair lp(testLocIp,testLocPort);
+    RemotePair rp(testRemIp, testRemPort);
+    int createdId = 0;
+    App a;
+    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
+    
+    ASSERT_EQ(lc , LocalCode::Success);
+  
+    ConnPair cPair(lp,rp);
+    
+    ASSERT_NE(connections.find(cPair) , connections.end());
+    EXPECT_TRUE(idMap.size() > 0);
+    
+    EXPECT_TRUE(a.appNotifs.size() < 1);
+    EXPECT_TRUE(a.connNotifs.size() < 1);
+    
+    Tcb& b = connections[cPair];
+    
+    State& testS = *b.currentState;
+    
+    
+    EXPECT_TRUE(b.passiveOpen);
+    ASSERT_TRUE(dynamic_cast<ListenS*>(&testS));
+}
+
+
+
+TEST_F(OpenTestFixture, OpenRemUnspecPassive){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(Unspecified, Unspecified);
@@ -93,7 +93,7 @@ TEST_F(ConnectionTestFixture, OpenRemUnspecPassive){
     ASSERT_TRUE(connections.find(cPair) != connections.end() && idMap.size() > 0);
 }
 
-TEST_F(ConnectionTestFixture, OpenRemUnspecActive){
+TEST_F(OpenTestFixture, OpenRemUnspecActive){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(Unspecified, Unspecified);
@@ -112,7 +112,7 @@ TEST_F(ConnectionTestFixture, OpenRemUnspecActive){
     
 }
 
-TEST_F(ConnectionTestFixture, OpenLocUnspec){
+TEST_F(OpenTestFixture, OpenLocUnspec){
 
     LocalPair lp(Unspecified,Unspecified);
     RemotePair rp(testRemIp, testRemPort);
@@ -133,7 +133,7 @@ TEST_F(ConnectionTestFixture, OpenLocUnspec){
     
 }
 
-TEST_F(ConnectionTestFixture, OpenFromListenPassive){
+TEST_F(OpenTestFixture, OpenFromListenPassive){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -164,7 +164,7 @@ TEST_F(ConnectionTestFixture, OpenFromListenPassive){
     
 }
 
-TEST_F(ConnectionTestFixture, OpenFromListenActive){
+TEST_F(OpenTestFixture, OpenFromListenActive){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -190,7 +190,7 @@ TEST_F(ConnectionTestFixture, OpenFromListenActive){
     ASSERT_FALSE(bAfter.passiveOpen);
 }
 
-TEST_F(ConnectionTestFixture, OpenListenActiveRemUnspec){
+TEST_F(OpenTestFixture, OpenListenActiveRemUnspec){
     
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(Unspecified, Unspecified);
