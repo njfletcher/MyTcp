@@ -341,6 +341,7 @@ bool sendFin(int socket, Tcb& b){
   sPacket.setFlag(TcpPacketFlags::fin).setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
       
   return sendPacket(socket,b.rP.first,sPacket);
+  
 }
 
 bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
@@ -365,11 +366,8 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   
   sPacket.optionList = options;
   sPacket.setRealChecksum(lp.first, rp.first);  
-  #ifdef TEST_NO_SEND
-    return true;
-  #else
-    return sendPacket(socket, rp.first, sPacket);
-  #endif
+  return sendPacket(socket, rp.first, sPacket);
+  
 }
 
 
@@ -1713,7 +1711,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
 
   for(auto iter = b.recQueue.begin(); iter < b.recQueue.end(); iter++){
     ReceiveEv& rEv = *iter;
-    notifyApp(b,TcpCode::Closing,e.id);
+    notifyApp(b,TcpCode::Closing, rEv.id);
   }
   removeConn(b);
   return LocalCode::Success;

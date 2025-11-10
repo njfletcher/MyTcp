@@ -59,12 +59,16 @@ bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   
   vector<uint8_t> buffer;
   p.toBuffer(buffer);
-
-  ssize_t numBytes = sendto(sock, buffer.data(), buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
-  if(numBytes < 0){
-    return false;
-  }
   
+  #ifdef TEST_NO_SEND
+    return true;
+  #else
+    ssize_t numBytes = sendto(sock, buffer.data(), buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));
+    if(numBytes < 0){
+      return false;
+    }
+  #endif
+
   return true;
 }
 
