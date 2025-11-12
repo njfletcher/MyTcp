@@ -22,6 +22,7 @@ add_executable(
 	testTcpIpPacket.cc
 	testOpen.cc
 	testClose.cc
+	testAbort.cc
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp
 	../src/state.cpp

@@ -6,6 +6,8 @@
 
 using namespace std;
 
+namespace tcpIpPacketTests{
+
 TEST(StandardTCPIPPacket, GoodPacketNoOptions){
 
   int buffSize = ipMinHeaderLen + tcpMinHeaderLen;
@@ -223,4 +225,4 @@ TEST(StandardTCPIPPacket, GoodPacketDefinedOptions){
   }
   EXPECT_TRUE(buffsMatch);
 }
-
+}

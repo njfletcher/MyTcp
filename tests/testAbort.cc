@@ -4,8 +4,7 @@
 
 using namespace std;
 
-namespace closeTests{
-
+namespace abortTests{
 #define testAppId 0
 #define testSocket 0
 #define testConnId 1
@@ -15,7 +14,7 @@ const unsigned int testLocPort = 1;
 const unsigned int testRemIp = 1;
 const unsigned int testRemPort = 1;
 
-class CloseTestFixture : public testing::Test{
+class AbortTestFixture : public testing::Test{
 
   void TearDown() override{
     connections.clear();
@@ -36,7 +35,7 @@ void testSimpleNotif(){
     ConnPair cPair(lp,rp);
     connections[cPair] = b;
     
-    LocalCode lc = close(&a, testSocket, lp, rp);
+    LocalCode lc = abort(&a, testSocket, lp, rp);
     ASSERT_EQ(lc , LocalCode::Success);
     
     EXPECT_TRUE(a.appNotifs.size() < 1);
@@ -48,13 +47,13 @@ void testSimpleNotif(){
     ASSERT_TRUE(
       (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
       && (a.connNotifs[testConnId].size() == 1) 
-      && (a.connNotifs[testConnId][0] == TcpCode::ConnClosing)
+      && (a.connNotifs[testConnId][0] == TcpCode::Ok)
     );
 
 }
 
-template<typename before, typename after>
-void testEmptySendQ(){
+template<typename T>
+void testNormalAbort(){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -62,63 +61,42 @@ void testEmptySendQ(){
     App a;
     Tcb b(&a, lp, rp, true);
     b.id = testConnId;
-    b.currentState = make_shared<before>();
+    b.currentState = make_shared<T>();
+    ReceiveEv e;
+    SendEv sE;
+    TcpPacket p;
+    b.recQueue.push_back(e);
+    b.sendQueue.push_back(sE);
+    b.retransmit.push_back(p);
     ConnPair cPair(lp,rp);
     connections[cPair] = b;
     
-    LocalCode lc = close(&a, testSocket, lp, rp);
-    ASSERT_EQ(lc , LocalCode::Success);
-    
-    ASSERT_NE(connections.find(cPair) , connections.end());
-    
-    EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
-    
     Tcb& bNew = connections[cPair];
     
-    State& testS = *bNew.currentState;
-    ASSERT_TRUE(dynamic_cast<after*>(&testS));
-    
-}
-
-template<typename before, typename after>
-void testNonEmptySendQ(){
-
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
-    
-    App a;
-    Tcb b(&a, lp, rp, true);
-    b.id = testConnId;
-    b.currentState = make_shared<before>();
-    SendEv e;
-    b.sendQueue.push_back(e);
-    ConnPair cPair(lp,rp);
-    connections[cPair] = b;
-    
-    LocalCode lc = close(&a, testSocket, lp, rp);
+    LocalCode lc = abort(&a, testSocket, lp, rp);
     ASSERT_EQ(lc , LocalCode::Success);
     
-    ASSERT_NE(connections.find(cPair) , connections.end());
-    
     EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(connections.size() < 1);
+    EXPECT_TRUE(bNew.retransmit.size() < 1);
+  
+    ASSERT_TRUE(
+      (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
+      && (a.connNotifs[testConnId].size() == 2) 
+      && (a.connNotifs[testConnId][0] == TcpCode::ConnRst)
+      && (a.connNotifs[testConnId][1] == TcpCode::ConnRst)
+      
+    );
     
-    Tcb& bNew = connections[cPair];
-    
-    State& testS = *bNew.currentState;
-    EXPECT_TRUE(dynamic_cast<after*>(&testS));
-    
-    ASSERT_TRUE(bNew.closeQueue.size() > 0);
 
 }
 
-TEST_F(CloseTestFixture, CloseNoConn){
+TEST_F(AbortTestFixture, AbortNoConn){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
     App a;
-    LocalCode lc = close(&a, testSocket, lp, rp);
+    LocalCode lc = abort(&a, testSocket, lp, rp);
     
     ASSERT_EQ(lc , LocalCode::Success);
   
@@ -129,7 +107,7 @@ TEST_F(CloseTestFixture, CloseNoConn){
     
 }
 
-TEST_F(CloseTestFixture, CloseListen){
+TEST_F(AbortTestFixture, AbortListen){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -143,7 +121,7 @@ TEST_F(CloseTestFixture, CloseListen){
     ConnPair cPair(lp,rp);
     connections[cPair] = b;
     
-    LocalCode lc = close(&a, testSocket, lp, rp);
+    LocalCode lc = abort(&a, testSocket, lp, rp);
     ASSERT_EQ(lc , LocalCode::Success);
     
     EXPECT_TRUE(a.appNotifs.size() < 1);
@@ -152,12 +130,12 @@ TEST_F(CloseTestFixture, CloseListen){
     ASSERT_TRUE(
       (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
       && (a.connNotifs[testConnId].size() == 1) 
-      && (a.connNotifs[testConnId].front() == TcpCode::Closing)
+      && (a.connNotifs[testConnId].front() == TcpCode::ConnRst)
     );
         
 }
 
-TEST_F(CloseTestFixture, CloseSynSent){
+TEST_F(AbortTestFixture, AbortSynSent){
 
     LocalPair lp(testLocIp,testLocPort);
     RemotePair rp(testRemIp, testRemPort);
@@ -173,7 +151,7 @@ TEST_F(CloseTestFixture, CloseSynSent){
     ConnPair cPair(lp,rp);
     connections[cPair] = b;
     
-    LocalCode lc = close(&a, testSocket, lp, rp);
+    LocalCode lc = abort(&a, testSocket, lp, rp);
     ASSERT_EQ(lc , LocalCode::Success);
     
     EXPECT_TRUE(a.appNotifs.size() < 1);
@@ -182,54 +160,42 @@ TEST_F(CloseTestFixture, CloseSynSent){
     ASSERT_TRUE(
       (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
       && (a.connNotifs[testConnId].size() == 2) 
-      && (a.connNotifs[testConnId][0] == TcpCode::Closing)
-      && (a.connNotifs[testConnId][1] == TcpCode::Closing)
+      && (a.connNotifs[testConnId][0] == TcpCode::ConnRst)
+      && (a.connNotifs[testConnId][1] == TcpCode::ConnRst)
       
     );
         
 }
 
-TEST_F(CloseTestFixture, CloseSynRecEmptySendQ){
-  testEmptySendQ<SynRecS, FinWait1S>();            
+TEST_F(AbortTestFixture, AbortSynRec){
+  testNormalAbort<SynRecS>();            
 }
 
-TEST_F(CloseTestFixture, CloseSynRecNonEmptySendQ){
-  testNonEmptySendQ<SynRecS, SynRecS>();            
+TEST_F(AbortTestFixture, AbortEstab){
+  testNormalAbort<EstabS>();            
 }
 
-TEST_F(CloseTestFixture, CloseEstabEmptySendQ){
-  testEmptySendQ<EstabS,FinWait1S>();            
+TEST_F(AbortTestFixture, AbortFinWait1){
+  testNormalAbort<FinWait1S>();            
 }
 
-TEST_F(CloseTestFixture, CloseEstabNonEmptySendQ){
-  testNonEmptySendQ<EstabS, FinWait1S>();            
+TEST_F(AbortTestFixture, AbortFinWait2){
+  testNormalAbort<FinWait2S>();            
 }
 
-TEST_F(CloseTestFixture, CloseFinWait1){
-  testSimpleNotif<FinWait1S>();
+TEST_F(AbortTestFixture, AbortCloseWait){
+  testNormalAbort<CloseWaitS>();            
 }
 
-TEST_F(CloseTestFixture, CloseFinWait2){
-  testSimpleNotif<FinWait2S>();      
-}
-
-TEST_F(CloseTestFixture, CloseCloseWaitEmptySendQ){
-  testEmptySendQ<CloseWaitS, LastAckS>();            
-}
-
-TEST_F(CloseTestFixture, CloseCloseWaitNonEmptySendQ){
-  testNonEmptySendQ<CloseWaitS, LastAckS>();            
-}
-
-TEST_F(CloseTestFixture, CloseClosing){
+TEST_F(AbortTestFixture, AbortClosing){
   testSimpleNotif<ClosingS>();
 }
 
-TEST_F(CloseTestFixture, CloseLastAck){
+TEST_F(AbortTestFixture, AbortLastAck){
   testSimpleNotif<LastAckS>();
 }
 
-TEST_F(CloseTestFixture, CloseTimeWait){
+TEST_F(AbortTestFixture, AbortTimeWait){
   testSimpleNotif<TimeWaitS>();
 }
 

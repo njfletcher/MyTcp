@@ -5,6 +5,8 @@
 
 using namespace std;
 
+namespace tcpPacketTests{
+
 TEST(StandardTCPPacket, GoodPacketNoOptions){
 
   uint8_t buffer[tcpMinHeaderLen] = { 0x12, 0x34, 
@@ -261,4 +263,4 @@ TEST(StandardTCPPacket, BadPacketOptionOvershoot){
   TcpPacketCode c = p.fromBuffer(buffer, buffSize);
   ASSERT_EQ(c  ,  TcpPacketCode::Options);
 }
-
+}

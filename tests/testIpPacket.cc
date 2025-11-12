@@ -6,6 +6,8 @@
 
 using namespace std;
 
+namespace ipPacketTests{
+
 TEST(StandardIPPacket, GoodPacketNoOptions){
 
   uint8_t buffer[ipMinHeaderLen] = { 0x45, 
@@ -264,4 +266,4 @@ TEST(StandardIPPacket, BadPacketOptionOvershoot){
   ASSERT_EQ(c  ,  IpPacketCode::Header);
  
 }
-
+}

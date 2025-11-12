@@ -4,6 +4,8 @@
 
 using namespace std;
 
+namespace openTests{
+
 #define testAppId 0
 #define testSocket 0
 #define testConnId 1
@@ -276,20 +278,5 @@ TEST_F(OpenTestFixture, OpenExistingTimeWait){
   testSimpleNotif<TimeWaitS>();
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
 
