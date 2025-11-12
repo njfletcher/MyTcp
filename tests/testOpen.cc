@@ -21,6 +21,38 @@ class OpenTestFixture : public testing::Test{
   }
 };
 
+template<typename T>
+void testSimpleNotif(){
+
+    LocalPair lp(testLocIp,testLocPort);
+    RemotePair rp(testRemIp, testRemPort);
+    
+    App a;
+    Tcb b(&a, lp, rp, true);
+    b.id = testConnId;
+    b.currentState = make_shared<T>();
+    ConnPair cPair(lp,rp);
+    connections[cPair] = b;
+    
+    int createdId = 0;
+    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+  
+    ASSERT_EQ(lc , LocalCode::Success);
+    
+    EXPECT_TRUE(a.appNotifs.size() < 1);
+    ASSERT_NE(connections.find(cPair) , connections.end());
+    Tcb& bNew = connections[cPair];
+    State& testS = *bNew.currentState;
+    EXPECT_TRUE(dynamic_cast<T*>(&testS));
+    
+    ASSERT_TRUE(
+      (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
+      && (a.connNotifs[testConnId].size() == 1) 
+      && (a.connNotifs[testConnId][0] == TcpCode::DupConn)
+    );
+
+}
+
 TEST_F(OpenTestFixture, OpenCompleteActive){
 
     LocalPair lp(testLocIp,testLocPort);
@@ -215,4 +247,49 @@ TEST_F(OpenTestFixture, OpenListenActiveRemUnspec){
     ASSERT_TRUE((a.appNotifs.size() > 0) && (a.appNotifs.front() == TcpCode::ActiveUnspec));
     
 }
+
+TEST_F(OpenTestFixture, OpenExistingSynSent){
+  testSimpleNotif<SynSentS>();
+}
+TEST_F(OpenTestFixture, OpenExistingSynRec){
+  testSimpleNotif<SynRecS>();
+}
+TEST_F(OpenTestFixture, OpenExistingEstab){
+  testSimpleNotif<EstabS>();
+}
+TEST_F(OpenTestFixture, OpenExistingFinWait1){
+  testSimpleNotif<FinWait1S>();
+}
+TEST_F(OpenTestFixture, OpenExistingFinWait2){
+  testSimpleNotif<FinWait2S>();
+}
+TEST_F(OpenTestFixture, OpenExistingCloseWait){
+  testSimpleNotif<CloseWaitS>();
+}
+TEST_F(OpenTestFixture, OpenExistingClosing){
+  testSimpleNotif<ClosingS>();
+}
+TEST_F(OpenTestFixture, OpenExistingLastAck){
+  testSimpleNotif<LastAckS>();
+}
+TEST_F(OpenTestFixture, OpenExistingTimeWait){
+  testSimpleNotif<TimeWaitS>();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
