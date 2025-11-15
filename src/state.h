@@ -65,8 +65,10 @@ enum class RemoteCode{
 };
 
 class Event{
-
   public:
+    Event(uint32_t ident): id(ident) {}
+    uint32_t getId();
+  protected:
     uint32_t id;
 };
 
@@ -81,8 +83,11 @@ class SegmentEv : public Event{
 
 class SendEv: public Event{
   public:
+    SendEv(uint32_t id,  std::vector<uint8_t> d, bool urg, bool psh): Event(id), data(d), urgent(urg), push(psh) {}
+  private:
     std::vector<uint8_t> data;
     bool urgent;
+    bool push;
     uint32_t bytesRead = 0;
 };
 
