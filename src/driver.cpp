@@ -121,6 +121,157 @@ LocalCode multiplexIncoming(int socket, RemoteCode& remCode){
 }
 
 
+//effective send mss: how much tcp data are we actually allowed to send to the peer.
+uint32_t getEffectiveSendMss(Tcb& b, vector<TcpOption> optionList){
+
+  uint32_t optionListByteCount = 0;
+  for(auto i = optionList.begin(); i < optionList.end(); i++){
+    TcpOption o = *i;
+    optionListByteCount++; //kind byte
+    if(o.hasLength){
+      optionListByteCount++;
+    }
+    optionListByteCount += o.data.size();
+    
+  }
+
+  uint32_t messageSize = b.peerMss + tcpMinHeaderLen;
+  uint32_t mmsS = getMmsS();
+  if(mmsS < messageSize) messageSize = mmsS;
+  
+  return messageSize - optionListByteCount - tcpMinHeaderLen; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
+}
+
+
+//keep packaging send event data chunks into the segment until the segment needs to be sent
+LocalCode packageAndSendSegment(int socket, Tcb& b, TcpPacket& sendPacket, int& numBytes, uint32_t effSendMss){
+
+    bool packageMoreChunks = true;
+    while(packageMoreChunks){
+      SendEv& ev = b.sendQueue.front();
+    
+      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
+      if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
+          //send finished packet
+          bool ls = sendDataPacket(socket,b,sendPacket);
+          if(!ls){
+              return LocalCode::Socket;
+          }
+          return LocalCode::Success;s
+      }
+     
+     uint32_t bytesRead = ev.bytesRead;
+     uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
+     uint32_t packetRoom = effSendMss - sendPacket.payload.size();
+     uint32_t upperBound = min({packetRoom, dataRoom, numBytes});
+     for(uint32_t i = 0; i < upperBound; i++){
+        sendPacket.payload.push_back(ev.data[bytesRead+i]);
+        b.sNxt++;
+        bytesRead++;
+        numBytes--;
+     }
+
+     bool sendFin = false;
+     if(ev.urgent){
+      sendPacket.setFlag(TcpPacketFlags::urg);
+            sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
+        }
+        if(upperBound == dataRoom){
+            
+            b.sendQueue.pop_front();
+            b.sendQueueByteCount -= ev.data.size();
+            if(b.sendQueue.empty() && !(b.closeQueue.empty())){
+              sendFin = true;
+            }
+        }
+        else{
+            ev.bytesRead = bytesRead;
+        }
+          
+        //peers window is filled up, sending more data would just get it rejected or dropped.
+        //there might be partial data left in this data send buffer chunk
+        if(upperBound == windowRoom){
+            sendMorePackets = false;
+            cont = false;
+            bool ls = sendDataPacket(socket,b,sendPacket); 
+            if(!ls){
+                return LocalCode::Socket;
+            }
+            sendPacket = TcpPacket{};
+            sendPacket.setSeq(b.sNxt);
+              
+        }
+        else{
+            if(upperBound == packetRoom){
+                if(sendFin) sendPacket.setFlag(TcpPacketFlags::fin);
+                bool ls = sendDataPacket(socket,b,sendPacket);
+                if(!ls){
+                  return LocalCode::Socket;
+                }
+                sendPacket = TcpPacket{};
+                sendPacket.setSeq(b.sNxt);
+            }
+              
+          
+        }
+
+    }
+
+    return LocalCode::Success;
+
+}
+
+//keep packaging and sending segments until we've covered the specified number of bytes
+LocalCode packageAndSendSegments(int socket, Tcb& b, int numBytes, uint32_t effSendMss){
+
+  while(numBytes > 0){
+      TcpPacket sendPacket;
+      sendPacket.setSeq(b.sNxt);
+      LocalCode ls = packageAndSendSegment(socket, b, sendPacket, numBytes, effSendMss);
+      if(ls != LocalCode::Success){
+          return ls;
+      }
+  }
+        
+}
+
+
+LocalCode trySend(int socket, Tcb& b){
+
+  bool sendMoreData = true;
+  while(sendMoreData){
+  
+    uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
+    uint32_t usableWindow = b.sUna + b.sWnd - b.sNxt; 
+    uint32_t minDu = usableWindow;
+    if(b.sendQueueByteCount < usableWindow) minDu = b.sendQueueByteCount;
+  
+    if(minDu >= effSendMss){
+      LocalCode lc = segmentAndSend(socket, Tcb& b, effSendMss, effSendMss);
+      if(lc != LocalCode::Success) return lc;s
+    }
+    
+    
+    
+    
+  }
+  
+
+}
+
+
+
+void tryConnectionSends(int socket){
+
+  for(auto iter = connections.begin(); iter < connections.end(); iter++){
+    Tcb& b = connections->second;
+    checkSend(b);
+  }
+  
+}
+
+
+
 /*
 entryTcp-
 Starts the tcp implementation, equivalent to a tcp module being loaded.
@@ -145,8 +296,8 @@ LocalCode entryTcp(char* sourceAddr){
     if((numRet > 0) && (pollItem.revents & POLLIN)){
       multiplexIncoming(socket, remCode);
     }
-    
-    //check send data and other async tasks
+      
+    tryConnectionSends(socket);
   
   }
   

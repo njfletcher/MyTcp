@@ -24,8 +24,6 @@ using namespace std;
 
 //range from dynPortStart to dynPortEnd
 unordered_map<uint16_t,bool> usedPorts;
-//ids range from 0 to max val of int
-unordered_map<int, ConnPair> idMap;
 
 State::State(){}
 State::~State(){}
@@ -39,7 +37,6 @@ std::size_t ConnHash::operator()(const ConnPair& p) const {
 }
 
 uint32_t bestLocalAddr=1;
-ConnectionMap connections;
 
 Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive){}
 
@@ -247,28 +244,6 @@ uint32_t getMSSValue(uint32_t destAddr){
   if(calcMss > maxMss) return maxMss;
   else return calcMss;
 }
-
-//effective send mss: how much tcp data are we actually allowed to send to the peer.
-uint32_t getEffectiveSendMss(Tcb& b, vector<TcpOption> optionList){
-
-  uint32_t optionListByteCount = 0;
-  for(auto i = optionList.begin(); i < optionList.end(); i++){
-    TcpOption o = *i;
-    optionListByteCount++; //kind byte
-    if(o.hasLength){
-      optionListByteCount++;
-    }
-    optionListByteCount += o.data.size();
-    
-  }
-
-  uint32_t messageSize = b.peerMss + tcpMinHeaderLen;
-  uint32_t mmsS = getMmsS();
-  if(mmsS < messageSize) messageSize = mmsS;
-  
-  return messageSize - optionListByteCount - tcpMinHeaderLen; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
-}
-
 
 bool verifyRecWindow(Tcb& b, TcpPacket& p){
 
@@ -1371,154 +1346,14 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SendEv& se){
     return LocalCode::Success;
 }
 
-LocalCode segmentAndSendFrontData(int socket, Tcb& b, TcpPacket& sendPacket, bool& cont){
-
-    uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
-    SendEv& ev = b.sendQueue.front();
-
-    //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
-    if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
-        //send finished packet
-        bool ls = sendDataPacket(socket,b,sendPacket);
-        if(!ls){
-            return LocalCode::Socket;
-        }
-        sendPacket = TcpPacket{};
-        sendPacket.setSeq(b.sNxt);
-    }
-     
-    uint32_t bytesRead = ev.bytesRead;
-    bool sendMorePackets = true;
-    while(sendMorePackets){
-        uint32_t windowRoom = (b.sUna + b.sWnd) - b.sNxt;
-        uint32_t dataRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
-        uint32_t packetRoom = effSendMss - sendPacket.payload.size();
-        uint32_t upperBound = min({packetRoom, dataRoom, windowRoom});
-        for(uint32_t i = 0; i < upperBound; i++){
-            sendPacket.payload.push_back(ev.data[bytesRead+i]);
-            b.sNxt++;
-            bytesRead++;
-        }
-
-        bool sendFin = false;
-        if(ev.urgent){
-            sendPacket.setFlag(TcpPacketFlags::urg);
-            sendPacket.setUrgentPointer(b.sNxt - sendPacket.getSeqNum() -1);
-        }
-        if(upperBound == dataRoom){
-            sendMorePackets = false;
-            b.sendQueue.pop_front();
-            b.sendQueueByteCount -= ev.data.size();
-            if(b.sendQueue.empty() && !(b.closeQueue.empty())){
-              sendFin = true;
-            }
-        }
-        else{
-            ev.bytesRead = bytesRead;
-        }
-          
-        //peers window is filled up, sending more data would just get it rejected or dropped.
-        //there might be partial data left in this data send buffer chunk
-        if(upperBound == windowRoom){
-            sendMorePackets = false;
-            cont = false;
-            bool ls = sendDataPacket(socket,b,sendPacket); 
-            if(!ls){
-                return LocalCode::Socket;
-            }
-            sendPacket = TcpPacket{};
-            sendPacket.setSeq(b.sNxt);
-              
-        }
-        else{
-            if(upperBound == packetRoom){
-                if(sendFin) sendPacket.setFlag(TcpPacketFlags::fin);
-                bool ls = sendDataPacket(socket,b,sendPacket);
-                if(!ls){
-                  return LocalCode::Socket;
-                }
-                sendPacket = TcpPacket{};
-                sendPacket.setSeq(b.sNxt);
-            }
-              
-          
-        }
-
-    }
-
-    return LocalCode::Success;
-
-}
-
 LocalCode EstabS::processEvent(int socket, Tcb& b, SendEv& se){
-
   addToSendQueue(b,se);
   return LocalCode::Success;
-
-  /*TcpPacket sendPacket;
-  sendPacket.setSeq(b.sNxt);
-  bool sendMoreData = true;
-  while(!b.sendQueue.empty() && sendMoreData){
-      LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-      if(ls != LocalCode::Success){
-          return ls;
-      }
-  }
-        
-  //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
-  //might have a partially filled packet to start with
-  if(sendMoreData){
-      bool added = addToSendQueue(b,se);
-      if(added){
-          LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-          if(ls != LocalCode::Success){
-              return ls;
-          }
-      }
-      
-  }
-  else{
-      addToSendQueue(b,se);
-  }
-  
-  return LocalCode::Success;
-  */
 }
 
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SendEv& se){
-
   addToSendQueue(b,se);
   return LocalCode::Success;
-
-  /*TcpPacket sendPacket;
-  sendPacket.setSeq(b.sNxt);
-  bool sendMoreData = true;
-  while(!b.sendQueue.empty() && sendMoreData){
-      LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-      if(ls != LocalCode::Success){
-          return ls;
-      }
-  }
-        
-  //now that an attempt has been made to clear the buffer of already waiting data, try send(or store) the data the user just passed us.
-  //might have a partially filled packet to start with
-  if(sendMoreData){
-      bool added = addToSendQueue(b,se);
-      if(added){
-          LocalCode ls = segmentAndSendFrontData(socket, b, sendPacket, sendMoreData);
-          if(ls != LocalCode::Success){
-              return ls;
-          }
-      }
-      
-  }
-  else{
-      addToSendQueue(b,se);
-  }
-  
-  return LocalCode::Success;
-  */
-
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, SendEv& oe){
