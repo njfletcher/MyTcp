@@ -28,6 +28,17 @@ unordered_map<uint16_t,bool> usedPorts;
 State::State(){}
 State::~State(){}
 
+bool Tcb::swsTimerExpired(){
+  if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
+  return std::chrono::steady_clock::now() >= swsTimerExpire;
+}
+void Tcb::stopSwsTimer(){
+  swsTimerExpire = std::chrono::steady_clock::time_point::min();
+}
+void Tcb::resetSwsTimer(){
+  swsTimerExpire = std::chrono::steady_clock::now() + swsTimerInterval;
+}
+
 std::size_t ConnHash::operator()(const ConnPair& p) const {
   
   return std::hash<uint32_t>{}(p.first.first) ^

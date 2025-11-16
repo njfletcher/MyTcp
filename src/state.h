@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <queue>
 #include <memory>
+#include <chrono>
 
 #define Unspecified 0
 #define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
@@ -138,7 +139,7 @@ class Tcb{
     uint32_t irs = 0; // initial sequence number chosen by peer for their data.
     
     uint32_t maxSWnd = 0;
-    
+  
     //seq num of data where app has not consumed yet.
     uint32_t appNewData = 0;
     bool urgentSignaled = false;
@@ -155,7 +156,14 @@ class Tcb{
     
     std::deque<SendEv> sendQueue;
     int sendQueueByteCount = 0;
+    std::chrono::milliseconds swsTimerInterval{300};
+    std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
     
+    bool swsTimerExpired();
+    void stopSwsTimer();
+    void resetSwsTimer();
+    
+
     std::deque<CloseEv> closeQueue;
     
     std::shared_ptr<State> currentState;
