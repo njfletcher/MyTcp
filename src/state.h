@@ -154,6 +154,7 @@ class Tcb{
     
     std::deque<ReceiveEv> recQueue;
     
+    bool nagle = false;
     std::deque<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     std::chrono::milliseconds swsTimerInterval{300};

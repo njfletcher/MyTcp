@@ -183,11 +183,15 @@ LocalCode packageAndSendSegments(int socket, Tcb& b, uint32_t usableWindow, uint
      }
     
      if(numBytes == 0){
-        if(piggybackFin) sendPacket.setFlag(TcpPacketFlags::fin);
+        if(piggybackFin){
+          sendPacket.setFlag(TcpPacketFlags::fin);
+          b.sNxt++;
+        }
         bool ls = sendDataPacket(socket,b,sendPacket); 
         if(!ls){
           return LocalCode::Socket;
-        }   
+        }  
+        return LocalCode::Success;
      }
       
   }
