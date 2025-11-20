@@ -5,6 +5,7 @@
 #include "ipPacket.h"
 #include "tcpPacket.h"
 #include <cstdint>
+#include <queue>
 #include "network.h"
 
 /*
@@ -150,7 +151,6 @@ LocalCode packageAndSendSegments(int socket, Tcb& b, uint32_t usableWindow, uint
     
       //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
       if(ev.urgent && (!sendPacket.getFlag(TcpPacketFlags::urg) && (sendPacket.payload.size() > 0))){
-          //send finished packet
           bool ls = sendDataPacket(socket,b,sendPacket);
           if(!ls){
               return LocalCode::Socket;
@@ -159,13 +159,11 @@ LocalCode packageAndSendSegments(int socket, Tcb& b, uint32_t usableWindow, uint
           sendPacket.setSeq(b.sNxt);
       }
      
-     uint32_t bytesRead = ev.bytesRead;
-     uint32_t chunkRoom = static_cast<uint32_t>(ev.data.size()) - bytesRead;
-     uint32_t upperBound = min({chunkRoom, numBytes});
+     uint32_t upperBound = min({static_cast<uint32_t>(ev.data.size()), numBytes});
      for(uint32_t i = 0; i < upperBound; i++){
-        sendPacket.payload.push_back(ev.data[bytesRead+i]);
+        sendPacket.payload.push_back(ev.data[i]);
         b.sNxt++;
-        ev.bytesRead++;
+        b.sendQueueByteCount--;
         numBytes--;
      }
      
@@ -176,7 +174,6 @@ LocalCode packageAndSendSegments(int socket, Tcb& b, uint32_t usableWindow, uint
      
      if(ev.bytesRead == ev.data.size()){
         b.sendQueue.pop_front();
-        b.sendQueueByteCount -= ev.data.size();
         if(ev.push){
           sendPacket.setFlag(TcpPacketFlags::psh);
         }
@@ -208,6 +205,7 @@ bool scanForPush(Tcb& b, uint32_t usableWindow, int& bytes){
         return false;
       }
       if(ev.push){
+        bytes = bytesCovered;
         return true;
       }
       
@@ -217,44 +215,62 @@ bool scanForPush(Tcb& b, uint32_t usableWindow, int& bytes){
 
 LocalCode trySend(int socket, Tcb& b){
 
-  bool sendMoreData = true;
-  while(sendMoreData){
+  while(true){
   
     uint32_t effSendMss = getEffectiveSendMss(b, vector<TcpOption>{});
     uint32_t usableWindow = b.sUna + b.sWnd - b.sNxt; 
     uint32_t minDu = usableWindow;
-    if(b.sendQueueByteCount < usableWindow) minDu = b.sendQueueByteCount;
+    if(b.sendQueueByteCount < minDu) minDu = b.sendQueueByteCount;
+    if(minDu < 1){
+      break;
+    }
+    bool nagleCheck = (((b.sNxt == b.sUna) && b.nagle) || !b.nagle);
+    int endPush = 0;
   
     if(minDu >= effSendMss){
       LocalCode lc = packageAndSendSegments(socket, b, usableWindow, effSendMss);
+      b.stopSwsTimer();
       if(lc != LocalCode::Success) return lc;
     }
-    
-    int endPush = 0;
-    else if ( (((b.sNxt == b.sUna) && b.nagle) || !b.nagle) && scanForPush(b,usableWindow,endPush)){
+    else if(nagleCheck && scanForPush(b,usableWindow,endPush)){
       LocalCode lc = packageAndSendSegments(socket, b, usableWindow, endPush);
+      b.stopSwsTimer();
       if(lc != LocalCode::Success) return lc;
     }
-    
-    
-    
-    
-    
+    else if(nagleCheck && (minDu >= (MAX_WINDOW_FRACT * b.maxSWnd))){
+      LocalCode lc = packageAndSendSegments(socket, b, usableWindow, minDu);
+      b.stopSwsTimer();
+      if(lc != LocalCode::Success) return lc;
+    }
+    else if(b.swsTimerExpired()){
+      LocalCode lc = packageAndSendSegments(socket, b, usableWindow, minDu);
+      b.stopSwsTimer();
+      if(lc != LocalCode::Success) return lc;
+    }
+    else{
+      //only want to set the timer if its stopped, its possible the timer is already set from a previous failure to send
+      if(b.swsTimerStopped()){
+        b.resetSwsTimer();
+      }
+      break;
+      
+    }
     
   }
   
-
+  return LocalCode::Success;
+  
 }
 
 
 
-void tryConnectionSends(int socket){
-
+LocalCode tryConnectionSends(int socket){
   for(auto iter = connections.begin(); iter < connections.end(); iter++){
     Tcb& b = connections->second;
-    checkSend(b);
+    LocalCode c = trySend(socket, b);
+    if(c != LocalCode::Success) return c;
   }
-  
+  return LocalCode::Success;
 }
 
 
@@ -268,7 +284,7 @@ LocalCode entryTcp(char* sourceAddr){
 
   uint32_t sourceAddress = toAltOrder<uint32_t>(inet_addr(sourceAddr));
   int socket = 0;
-  bool worked =  bindSocket(sourceAddress, socket);
+  bool worked = bindSocket(sourceAddress, socket);
   if(!worked){
     return LocalCode::Socket;
   }
@@ -284,9 +300,12 @@ LocalCode entryTcp(char* sourceAddr){
       multiplexIncoming(socket, remCode);
     }
       
-    tryConnectionSends(socket);
+    LocalCode c = tryConnectionSends(socket);
+    if(c != LocalCode::Success) return c;
   
   }
   
   return LocalCode::Success;
+  
 }
+

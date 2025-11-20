@@ -83,10 +83,9 @@ class SegmentEv : public Event{
 class SendEv: public Event{
   public:
     SendEv(uint32_t id,  std::vector<uint8_t> d, bool urg, bool psh): Event(id), data(d), urgent(urg), push(psh) {}
-    std::vector<uint8_t> data;
+    std::queue<uint8_t> data;
     bool urgent;
     bool push;
-    uint32_t bytesRead = 0;
 };
 
 class ReceiveEv: public Event{
@@ -152,20 +151,20 @@ class Tcb{
     std::deque<TcpSegmentSlice> arrangedSegments;
     int arrangedSegmentsByteCount = 0;
     
-    std::deque<ReceiveEv> recQueue;
+    std::queue<ReceiveEv> recQueue;
     
     bool nagle = false;
-    std::deque<SendEv> sendQueue;
+    std::queue<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     std::chrono::milliseconds swsTimerInterval{300};
     std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
     
     bool swsTimerExpired();
+    bool swsTimerStopped();
     void stopSwsTimer();
     void resetSwsTimer();
     
-
-    std::deque<CloseEv> closeQueue;
+    std::queue<CloseEv> closeQueue;
     
     std::shared_ptr<State> currentState;
     bool passiveOpen = false;

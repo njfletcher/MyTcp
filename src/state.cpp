@@ -32,6 +32,9 @@ bool Tcb::swsTimerExpired(){
   if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
   return std::chrono::steady_clock::now() >= swsTimerExpire;
 }
+bool Tcb::swsTimerStopped(){
+  return swsTimerExpire == std::chrono::steady_clock::time_point::min();
+}
 void Tcb::stopSwsTimer(){
   swsTimerExpire = std::chrono::steady_clock::time_point::min();
 }
@@ -1348,7 +1351,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 }
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
-    addToSendQueue(b,se);
+    addToSendQueue(b,se);s
     return LocalCode::Success;
 }
 
