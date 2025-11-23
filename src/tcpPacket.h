@@ -3,21 +3,20 @@
 #include <cstdint>
 #include <queue>
 
-#define tcpMinHeaderLen 20
-#define defaultTcpDataOffset 5
-
+const int TCP_MIN_HEADER_LEN = 20;
+const int DEFAULT_TCP_DATA_OFFSET = 5;
 
 enum class TcpPacketCode{
-  Success = 0,
-  Options = -1,
-  Header = -2,
-  Payload = -3
+  SUCCESS = 0,
+  OPTIONS = -1,
+  HEADER = -2,
+  PAYLOAD = -3
 };
 
 enum class TcpOptionKind{
-  end = 0,
-  noOp = 1,
-  mss = 2
+  END = 0,
+  NOOP = 1,
+  MSS = 2
 };
 
 class TcpOption{
@@ -25,11 +24,15 @@ class TcpOption{
     TcpOption() = default;
     TcpOption(uint8_t k, uint8_t len, bool hasLen, std::vector<uint8_t> data);
     bool fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
-    void print();
     void toBuffer(std::vector<uint8_t>& buff);
+    void print();
     uint16_t getSize();
-    uint16_t calcSize();
-    
+    uint16_t calcSize();  
+    uint8_t getKind();
+    uint8_t getLength();
+    bool hasLength();
+    std::vector<uint8_t>& getData();
+  private:
     uint16_t size;
     uint8_t kind;
     uint8_t length;
@@ -39,21 +42,25 @@ class TcpOption{
 };
 
 enum class TcpPacketFlags{
-	
-  fin = 0,
-  syn = 1,
-  rst = 2,
-  psh = 3,
-  ack = 4,
-  urg = 5,
-  ece = 6,
-  cwr = 7
+  FIN = 0,
+  SYN = 1,
+  RST = 2,
+  PSH = 3,
+  ACK = 4,
+  URG = 5,
+  ECE = 6,
+  CWR = 7
 };
-
-
 
 class TcpSegmentSlice{
   public:
+    TcpSegmentSlice() = default;
+    TcpSegmentSlice(bool p, uint32_t seq, std::queue<uint8_t>);
+    
+    bool isPush();
+    uint32_t getSeqNum();
+    std::queue<uint8_t>& getData();
+  private:
     bool push;
     uint32_t seqNum;
     std::queue<uint8_t> unreadData;
@@ -94,8 +101,8 @@ class TcpPacket{
     uint8_t getReserved();
     uint16_t getChecksum();
     
-    std::vector<uint8_t> payload;
-    std::vector<TcpOption> optionList;
+    std::vector<uint8_t>&  getPayload();
+    std::vector<TcpOption>& getOptions();
     
     //all multi-byte fields are guaranteed to be in host byte order.
   private:
@@ -109,5 +116,8 @@ class TcpPacket{
     uint16_t window = 0;
     uint16_t checksum = 0;
     uint16_t urgPointer = 0;
+    
+    std::vector<uint8_t> payload;
+    std::vector<TcpOption> optionList;
 };
 

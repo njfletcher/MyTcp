@@ -8,6 +8,11 @@ IpPacket::IpPacket(): tcpPacket{} {};
 
 IpOption::IpOption(uint8_t t, uint8_t len, bool hasLen): type(t), length(len), hasLength(hasLen){};
 
+uint8_t IpOption::getType(){ return type; }
+uint8_t IpOption::getLength(){ return length; }
+bool IpOption::hasLength(){ return hasLength; }
+vector<uint8_t>& IpOption::getData() { return data; }
+
 void IpOption::print(){
 
   cout << "==IpOption==" << endl;
@@ -18,8 +23,7 @@ void IpOption::print(){
   for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
   cout << "]" << endl;
   cout << "==========" << endl;
-
-
+  
 }
 
 void IpOption::toBuffer(vector<uint8_t>& buff){
@@ -42,13 +46,13 @@ bool IpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes)
   numBytesRead = numBytesRead + 1;
   
   type = t;
-  if( t == static_cast<uint8_t>(IpOptionType::eool)){
+  if( t == static_cast<uint8_t>(IpOptionType::EOOL)){
       hasLength = false;
       retBytes = numBytesRemaining; //even if ihl claims there are more bytes, eool means that reading needs to stop.
       return true;
   }
 
-  if(t == static_cast<uint8_t>(IpOptionType::nop) || numBytesRemaining < 2){
+  if(t == static_cast<uint8_t>(IpOptionType::NOOP) || numBytesRemaining < 2){
       hasLength = false;
       retBytes = numBytesRead;
       return true;
@@ -148,14 +152,14 @@ uint8_t IpPacket::getEcn(){
   return (dscpEcn & 0x3);
 }
 uint8_t IpPacket::getFlag(IpPacketFlags flag){
-  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - numIpPacketFlags)) & 0xFF;
+  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - NUM_IP_PACKET_FLAGS)) & 0xFF;
   return (flags >> static_cast<int>(flag)) & 0x1;
 }
 
 IpPacket& IpPacket::setFlag(IpPacketFlags flag){
-  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - numIpPacketFlags)) & 0xFF;
+  uint8_t flags = ((flagsFragOffset & 0xE000) >> (16 - NUM_IP_PACKET_FLAGS)) & 0xFF;
   flags = flags | (0x1 << static_cast<int>(flag));
-  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16-numIpPacketFlags));
+  flagsFragOffset = (flagsFragOffset & 0x01FFF) | (flags << (16 - NUM_IP_PACKET_FLAGS));
   return *this;
 }
 
@@ -168,6 +172,8 @@ uint16_t IpPacket::getIdent(){ return identification;}
 uint8_t IpPacket::getTtl(){ return ttl;}
 uint8_t IpPacket::getProto(){return protocol;}
 uint16_t IpPacket::getChecksum(){return headerChecksum;}
+std::vector<IpOption>& IpPacket::getOptions{ return optionList; }
+TcpPacket& IpPacket::getTcpPacket(){ return tcpPacket; }
 
 
 void IpPacket::print(){
@@ -220,10 +226,10 @@ uint32_t IpPacket::getOptionListByteCount(){
   for(auto i = optionList.begin(); i < optionList.end(); i++){
     IpOption o = *i;
     num = num + 1; //kind byte
-    if(o.hasLength){
+    if(o.hasLength()){
       num = num + 1;
     }
-    num = num + o.data.size();
+    num = num + o.getData().size();
     
   }
   return num;
@@ -236,8 +242,8 @@ takes raw bytes and fills in the ip packet with them.
 */
 IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
-  if(numBytes < ipMinHeaderLen){
-    return IpPacketCode::Header;
+  if(numBytes < IP_MIN_HEADER_LEN){
+    return IpPacketCode::HEADER;
   }
   
   versionIHL = buffer[0];
@@ -252,21 +258,20 @@ IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   destAddress = toAltOrder<uint32_t>(unloadBytes<uint32_t>(buffer,16));
   
   uint8_t ihlConv = getIHL() * 4;
-  if(ihlConv < 20 || ihlConv > numBytes) return IpPacketCode::Header;
+  if(ihlConv < IP_MIN_HEADER_LEN || ihlConv > numBytes) return IpPacketCode::HEADER;
   
-  uint8_t* currPointer = buffer + ipMinHeaderLen;
+  uint8_t* currPointer = buffer + IP_MIN_HEADER_LEN;
   
   vector<IpOption> options;
   
- 
-  if(ihlConv > 20){
+  if(ihlConv > IP_MIN_HEADER_LEN){
     
-    int optionBytesRemaining = ihlConv - ipMinHeaderLen;
+    int optionBytesRemaining = ihlConv - IP_MIN_HEADER_LEN;
     while(optionBytesRemaining > 0){
         IpOption o;
         int numBytesRead = 0;
         bool rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(!rs) return IpPacketCode::Header;
+        if(!rs) return IpPacketCode::HEADER;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -276,7 +281,7 @@ IpPacketCode IpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   int bytesRemaining = numBytes - ihlConv;
   TcpPacketCode c = tcpPacket.fromBuffer(currPointer, bytesRemaining);
-  if(c != TcpPacketCode::Success)return IpPacketCode::Payload;
-  else return IpPacketCode::Success;
+  if(c != TcpPacketCode::SUCCESS)return IpPacketCode::PAYLOAD;
+  else return IpPacketCode::SUCCESS;
 }
 

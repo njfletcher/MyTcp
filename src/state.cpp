@@ -28,6 +28,58 @@ unordered_map<uint16_t,bool> usedPorts;
 State::State(){}
 State::~State(){}
 
+int Tcb::getId(){ return id; }
+LocalPair Tcb::getLocalPair(){ return lP; }
+RemotePair Tcb::getRemotePair(){ return rP; }
+std::vector<TcpPacket>& Tcb::getRetransmitQueue(){ return retransmit; }
+uint32_t Tcb::getSUna(){ return sUna; }
+void Tcb::setSUna(uint32_t seq) { sUna = seq; }
+uint32_t Tcb::getSNxt(){ return sNxt; }
+void Tcb::setSNxt(uint32_t seq){ sNxt = seq; }
+uint32_t Tcb::getSWnd(){ return sWnd; }
+void Tcb::setSWnd(uint32_t wind){ sWnd = wind; }
+uint32_t Tcb::getIss(){ return iss; }
+void Tcb::setIss(uint32_t seq){ iss = seq; }
+uint32_t Tcb::getSUp(){ return sUp; }
+void Tcb::setSUp(uint32_t up){ sUp = up; }
+uint32_t Tcb::getSWl1(){ return sWl1; }
+void Tcb::setSWl1(uint32_t seq){ sWl1 = seq; }
+uint32_t Tcb::getSWl2(){ return sWl2; }
+void Tcb::setSWl2(uint32_t ack){ sWl2 = ack; }
+uint32_t Tcb::getRNxt(){ return rNxt; }
+void Tcb::setRNxt(uint32_t seq){ rNxt = seq; }
+uint32_t Tcb::getRWnd(){ return rWnd; }
+void Tcb::setRWnd(uint32_t wind){ rWnd = wind; }
+uint32_t Tcb::getRUp(){ return rUp; }
+void Tcb::setRUp(uint32_t up){ rUp = up; }
+uint32_t Tcb::getIrs(){ return irs; }
+void Tcb::setIrs(uint32_t seq){ irs = seq; }
+uint32_t Tcb::getMaxSWnd(){ return maxSWnd; }
+void Tcb::setMaxSWnd(uint32_t wind){ maxSWnd = wind; }
+uint32_t Tcb::getAppNewData(){ return appNewData; }
+void Tcb::setAppNewData(uint32_t data){ appNewData = data; }
+bool Tcb::urgentSignaled(){ return urgentSignaled; }
+void Tcb::setUrgentSignaled(bool sig){ urgentSignaled = sig; }
+bool Tcb::pushSeen(){ return pushSeen; }
+void Tcb::setPushSeen(bool seen){ pushSeen = seen; }
+uint16_t Tcb::getPeerMss(){ return peerMss; }
+void Tcb::setPeerMss(uint16_t mss){ peerMss = mss; }
+uint16_t Tcb::getMyMss(){ return myMss; }
+void Tcb::setMyMss(uint16_t mss){ myMss = mss; }
+std::deque<TcpSegmentSlice>& Tcb::getArrangedSegments(){ return arrangedSegments; }
+int Tcb::getArrangedSegmentByteCount(){ return arrangedSegmentByteCount; }
+void Tcb::setArrangedSegmentByteCount(int bytes){ arrangedSegmentByteCount = bytes; }
+std::deque<ReceiveEv>& Tcb::getRecQueue(){ return recQueue; }
+bool Tcb::getNagle(){ return nagle; }
+void Tcb::setNagle(bool ngle){ nagle = ngle; }
+std::deque<SendEv>& Tcb::getSendQueue(){ return sendQueue; }
+int Tcb::getSendQueueByteCount(){ return sendQueueByteCount; }
+void Tcb::setSendQueueByteCount(int bytes){ sendQueueByteCount = bytes; }
+std::deque<CloseEv>& Tcb::getCloseQueue(){ return closeQueue; }
+State* Tcb::getCurrentState(){ return currentState.get(); }
+void Tcb::setCurrentState(std::unique_ptr<State> s){ currentState = std::move(s); }
+bool Tcb::wasPassiveOpen(){ return passiveOpen; }
+void Tcb::setPassiveOpen(bool passive){ passiveOpen = passive; }
 bool Tcb::swsTimerExpired(){
   if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
   return std::chrono::steady_clock::now() >= swsTimerExpire;
@@ -203,36 +255,6 @@ int pickRealIsn(Tcb& block){
   
   block.iss = tVal + bufferTrunc;
   return 0;
-}
-
-void printTcpCode(TcpCode c){
-  string s = "signal: ";
-  switch(c){
-    case TcpCode::ActiveUnspec:
-      s += "remote socket unspecified";
-      break;
-    case TcpCode::Resources:
-      s += "insufficient resources";
-      break;
-    case TcpCode::DupConn:
-      s += "connection already exists";
-      break;
-    case TcpCode::ConnRst:
-      s += "connection reset";
-      break;
-    case TcpCode::ConnRef:
-      s += "connection refused";
-      break;
-    case TcpCode::ConnClosing:
-      s += "connection closing";
-      break;
-    case TcpCode::Closing:
-      s += "closing";
-      break;
-    default:
-      s += "unknown";
-  }
-  cout << s << endl;
 }
 
 
@@ -1351,7 +1373,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SendEv& se){
 }
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, SendEv& se){
-    addToSendQueue(b,se);s
+    addToSendQueue(b,se);
     return LocalCode::Success;
 }
 
@@ -1749,7 +1771,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
 }
 
 
-LocalCode send(App* app, int socket, bool urgent, vector<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
+LocalCode send(App* app, int socket, bool urgent, deque<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
 
   SendEv ev;
   ev.urgent = urgent;

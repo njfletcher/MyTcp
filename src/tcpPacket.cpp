@@ -4,6 +4,15 @@
 
 using namespace std;
 
+
+bool TcpSegmentSlice::isPush(){ return push; }
+uint32_t TcpSegmentSlice::getSeqNum(){ return seqNum; }
+std::queue<uint8_t>& TcpSegmentSlice::getData() { return unreadData; }
+
+TcpOption::TcpOption(uint8_t k, uint8_t len, bool hasLen, vector<uint8_t> d): kind(k), length(len), hasLength(hasLen), data(d){
+  size = calcSize();
+};
+
 uint16_t TcpOption::calcSize(){
   uint16_t sz = 1; //kind
   if(hasLength){
@@ -16,11 +25,18 @@ uint16_t TcpOption::calcSize(){
 uint16_t TcpOption::getSize(){
   return size;
 }
-
-
-TcpOption::TcpOption(uint8_t k, uint8_t len, bool hasLen, vector<uint8_t> d): kind(k), length(len), hasLength(hasLen), data(d){
-  size = calcSize();
-};
+uint8_t TcpOption::getKind(){
+  return kind;
+}
+uint8_t TcpOption::getLength(){
+  return length;
+}
+bool TcpOption::hasLength(){
+  return hasLength;
+}
+std::vector<uint8_t>& TcpOption::getData(){
+  return data;
+}
 
 void TcpOption::print(){
 
@@ -32,7 +48,6 @@ void TcpOption::print(){
   for(int i = 0; i < data.size(); i++) cout << " " << static_cast<unsigned int>(data[i]);
   cout << "]" << endl;
   cout << "==========" << endl;
-
 
 }
 
@@ -55,13 +70,13 @@ bool TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes
   numBytesRead = numBytesRead + 1;
   
   kind = k;
-  if( k == static_cast<uint8_t>(TcpOptionKind::end)){
+  if( k == static_cast<uint8_t>(TcpOptionKind::END)){
       hasLength = false;
       size = calcSize();
       retBytes = numBytesRemaining; //even if dataoffset claims there are more bytes, end means that reading needs to stop.
       return true;
   }
-  if(k == static_cast<uint8_t>(TcpOptionKind::noOp)){
+  if(k == static_cast<uint8_t>(TcpOptionKind::NOOP)){
       hasLength = false;
       size = calcSize();
       retBytes = numBytesRead;
@@ -74,12 +89,11 @@ bool TcpOption::fromBuffer(uint8_t* buffer, int numBytesRemaining, int& retBytes
   uint8_t len = buffer[1];
   //length field includes itself and the kind byte. Anything less than 2 doesnt make sense
   if(len < 2) return false;
-  if(k == static_cast<uint8_t>(TcpOptionKind::mss) && len != 4) return false;
+  if(k == static_cast<uint8_t>(TcpOptionKind::MSS) && len != 4) return false;
   
   numBytesRead = numBytesRead + 1;
   length = len;
   hasLength = true;
-  
   
   uint8_t dataLength = len -2; // to account for length and type field
   
@@ -288,7 +302,7 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   if(numBytes < tcpMinHeaderLen){
-    return TcpPacketCode::Header;
+    return TcpPacketCode::HEADER;
   }
 
   sourcePort = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,0));
@@ -302,19 +316,19 @@ TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   urgPointer = toAltOrder<uint16_t>(unloadBytes<uint16_t>(buffer,18));
 
   uint8_t offsetConv = getDataOffset() * 4;
-  if(offsetConv < 20 || offsetConv > numBytes) return TcpPacketCode::Header;
+  if(offsetConv < 20 || offsetConv > numBytes) return TcpPacketCode::HEADER;
   
-  uint8_t* currPointer = buffer + tcpMinHeaderLen;
+  uint8_t* currPointer = buffer + TCP_MIN_HEADER_LEN;
   
   vector<TcpOption> options;
   
-  if(offsetConv > 20){
-    int optionBytesRemaining = offsetConv - tcpMinHeaderLen;
+  if(offsetConv > TCP_MIN_HEADER_LEN){
+    int optionBytesRemaining = offsetConv - TCP_MIN_HEADER_LEN;
     while(optionBytesRemaining > 0){
         TcpOption o;
         int numBytesRead = 0;
         bool rs = o.fromBuffer(currPointer, optionBytesRemaining, numBytesRead);
-        if(!rs) return TcpPacketCode::Options;
+        if(!rs) return TcpPacketCode::OPTIONS;
         currPointer = currPointer + numBytesRead;
         optionBytesRemaining = optionBytesRemaining - numBytesRead;
         options.push_back(o);
@@ -330,7 +344,7 @@ TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
   size = calcSize();
 
-  return TcpPacketCode::Success;
+  return TcpPacketCode::SUCCESS;
 }
 
 

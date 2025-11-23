@@ -3,49 +3,49 @@
 #include <cstdint>
 #include "tcpPacket.h"
 
-#define ipMinHeaderLen 20
-#define ipPacketMaxSize 65535
-#define numIpPacketFlags 3
+const int IP_MIN_HEADER_LEN = 20;
+const int IP_PACKET_MAX_SIZE = 65535;
+const int NUM_IP_PACKET_FLAGS = 3;
 
 enum class IpPacketCode{
-  Success = 0,
-  Options = -1,
-  Header = -2,
-  Payload = -3
+  SUCCESS = 0,
+  OPTIONS = -1,
+  HEADER = -2,
+  PAYLOAD = -3
 };
 
 enum class IpOptionType{
 
-  eool = 0,
-  nop = 1,
-  sec = 2,
-  rr = 7,
-  zsu = 10,
-  mtup = 11,
-  mtur = 12,
-  encode = 15,
-  qs = 25,
-  exp = 30,
-  ts = 68,
-  tr = 82,
-  exp2 = 94,
-  sec2 = 130,
-  lsr = 131,
-  esec = 133,
-  cipso = 134,
-  sid = 136,
-  ssr = 137,
-  visa = 142,
-  imitd = 144,
-  eip = 145,
-  addext = 147,
-  rtralt = 148,
-  sdb = 149,
-  dps = 151,
-  ump = 152,
-  exp3 = 158,
-  finn = 205,
-  exp4 = 222
+  EOOL = 0,
+  NOOP = 1,
+  SEC = 2,
+  RR = 7,
+  ZSU = 10,
+  MTUP = 11,
+  MTUR = 12,
+  ENCODE = 15,
+  QS = 25,
+  EXP = 30,
+  TS = 68,
+  TR = 82,
+  EXP2 = 94,
+  SEC2 = 130,
+  LSR = 131,
+  ESEC = 133,
+  CIPSO = 134,
+  SID = 136,
+  SSR = 137,
+  VISA = 142,
+  IMITD = 144,
+  EIP = 145,
+  ADDEXT = 147,
+  RTRALT = 148,
+  SDB = 149,
+  DPS = 151,
+  UMP = 152,
+  EXP3 = 158,
+  FINN = 205,
+  EXP4 = 222
 };
 
 class IpOption{
@@ -55,6 +55,12 @@ class IpOption{
     void print();
     void toBuffer(std::vector<uint8_t>& buff);
     bool fromBuffer(uint8_t* bufferPtr, int numBytesRemaining, int& retBytes);
+    
+    uint8_t getType();
+    uint8_t getLength();
+    bool hasLength();
+    vector<uint8_t>& getData();
+  private:
     uint8_t type;
     uint8_t length;
     bool hasLength; 
@@ -62,16 +68,15 @@ class IpOption{
 };
 
 enum class IpPacketFlags{
-  moreFrag = 0,
-  dontFrag = 1,
-  reserved = 2
+  MOREFRAG = 0,
+  DONTFRAG = 1,
+  RESERVED = 2
 };
 
 class IpPacket{
 
   public:
     IpPacket();
-    
     IpPacket& setVersion(uint8_t vers);
     IpPacket& setIHL(uint8_t ihl);
     IpPacket& setDSCP(uint8_t dscp);
@@ -102,28 +107,28 @@ class IpPacket{
     
     uint32_t getOptionListByteCount();
     
+    std::vector<IpOption>& getOptions();
+    TcpPacket& getTcpPacket();
+    
     IpPacketCode fromBuffer(uint8_t* buffer, int numBytes);
     void toBuffer(std::vector<uint8_t>& buff);
     void print();
-
-    std::vector<IpOption> optionList;
-    TcpPacket tcpPacket;
     
   //all multi-byte fields are guaranteed to be in host byte order.
   private:
     uint8_t versionIHL = 0;
     uint8_t dscpEcn = 0;
     uint16_t totalLength = 0;
-    
     uint16_t identification = 0;
     uint16_t flagsFragOffset = 0;
-    
     uint8_t ttl = 0;
     uint8_t protocol = 0;
     uint16_t headerChecksum = 0;
-    
     uint32_t sourceAddress = 0;
     uint32_t destAddress = 0;
+    
+    std::vector<IpOption> optionList;
+    TcpPacket tcpPacket;
     
 };
 

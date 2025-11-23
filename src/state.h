@@ -8,14 +8,14 @@
 #include <memory>
 #include <chrono>
 
-#define Unspecified 0
-#define keyLen 16 //128 bits = 16 bytes recommended by RFC 6528
-#define dynPortStart 49152
-#define dynPortEnd 65535
-#define arrangedSegmentsBytesMax 500
-#define recQueueMax 500
-#define sendQueueBytesMax 500
-#define defaultMSS 536 // maximum segment size
+const int UNSPECIFIED = 0;
+const int KEY_LEN = 16; //128 bits = 16 bytes recommended by RFC 6528
+const int DYN_PORT_START = 49152;
+const int DYN_PORT_END = 65535;
+const int ARRANGED_SEGMENTS_BYTES_MAX = 500;
+const int REC_QUEUE_MAX = 500;
+const int SEND_QUEUE_BYTE_MAX = 500;
+const int DEFAULT_MSS = 536; // maximum segment size
 
 class Tcb;
 class State;
@@ -30,78 +30,102 @@ struct ConnHash{
 
 typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
 
-
-//maps connection id to connPair
-std::unordered_map<int, ConnPair> idMap;
-ConnectionMap connections;
-
-
+#ifdef TEST_NO_SEND
+  extern std::unordered_map<int, ConnPair> idMap;
+  extern ConnectionMap connections;
+#endif
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
 enum class TcpCode{
-  Ok = 0,
-  ActiveUnspec = -20,
-  Resources = -21,
-  DupConn = -22,
-  ConnRst = -23,
-  ConnRef = -24,
-  ConnClosing = -25,
-  UrgentData = -26,
-  PushData = -27,
-  NoConnExists = -28,
-  Closing = -29
+  OK = 0,
+  ACTIVEUNSPEC = -20,
+  RESOURCES = -21,
+  DUPCONN = -22,
+  CONNRST = -23,
+  CONNREF = -24,
+  CONNCLOSING = -25,
+  URGENTDATA = -26,
+  PUSHDATA = -27,
+  NOCONNEXISTS = -28,
+  CLOSING = -29
 };
 
 enum class LocalCode{
-  Success = 0,
-  Socket = -1
+  SUCCESS = 0,
+  SOCKET = -1
 };
 
 enum class RemoteCode{
-  Success = 0,
-  MalformedPacket = -1,
-  UnexpectedPacket = -2
+  SUCCESS = 0,
+  MALFORMEDPACKET = -1,
+  UNEXPECTEDPACKET = -2
 
 };
 
 class Event{
   public:
-    Event(uint32_t ident): id(ident) {}
+    Event(uint32_t ident);
+    uint32_t getId();
+  private:
     uint32_t id;
 };
 
 class OpenEv : public Event{
   public:
+    OpenEv(bool p, uint32_t id);
+    bool isPassive();
+  private:
     bool passive;
 };
 class SegmentEv : public Event{
   public:
+    SegmentEv(IpPacket ipPacket, uint32_t id);
+    IpPacket& getIpPacket();
+  private:
     IpPacket ipPacket;
 };
 
 class SendEv: public Event{
   public:
-    SendEv(uint32_t id,  std::vector<uint8_t> d, bool urg, bool psh): Event(id), data(d), urgent(urg), push(psh) {}
-    std::queue<uint8_t> data;
+    SendEv(std::deque<uint8_t> d, bool urg, bool psh, uint32_t id);
+    std::deque<uint8_t>& getData();
+    bool isUrgent();
+    bool isPush();
+  private:
+    std::deque<uint8_t> data;
     bool urgent;
     bool push;
 };
 
 class ReceiveEv: public Event{
   public:
+    ReceiveEv(uint32_t a, std::vector<uint8_t> buff, uint32_t id);
+    uint32_t getAmount();
+    std::vector<uint8_t>& getBuffer();
+  private:
     uint32_t amount;
     std::vector<uint8_t> providedBuffer;
 };
 
-class CloseEv: public Event{};
+class CloseEv: public Event{
+  public:
+    CloseEv(uint32_t id);
+};
 
-class AbortEv: public Event{};
+class AbortEv: public Event{
+  public:
+    AbortEv(uint32_t id);
+};
 
 
 class App{
-
   public:
+    App(int ident, std::deque<TcpCode> aNotif, std::unordered_map<int, std::deque<TcpCode> > cNotifs);
+    int getId();
+    std::deque<TcpCode>& getAppNotifs();
+    std::unordered_map<int, std::deque<TcpCode> >& getConnNotifs();
+  private:
     int id;
     std::deque<TcpCode> appNotifs;
     std::unordered_map<int, std::deque<TcpCode> > connNotifs;
@@ -112,7 +136,89 @@ class Tcb{
   public:
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
+    int getId();
+    LocalPair getLocalPair();
+    RemotePair getRemotePair();
     
+    std::vector<TcpPacket>& getRetransmitQueue();
+    uint32_t getSUna();
+    void setSUna(uint32_t seq);
+    
+    uint32_t getSNxt();
+    void setSNxt(uint32_t seq);
+    
+    uint32_t getSWnd();
+    void setSWnd(uint32_t wind);
+    
+    uint32_t getIss();
+    void setIss(uint32_t seq);
+    
+    uint32_t getSUp();
+    void setSUp(uint32_t up);
+    
+    uint32_t getSWl1();
+    void setSWl1(uint32_t seq);
+    
+    uint32_t getSWl2();
+    void setSWl2(uint32_t ack);
+
+    uint32_t getRNxt()
+    void setRNxt(uint32_t seq);
+    
+    uint32_t getRWnd();
+    void setRWnd(uint32_t wind);
+   
+    uint32_t getRUp();
+    void setRUp(uint32_t up);
+    
+    uint32_t getIrs();
+    void setIrs(uint32_t seq);
+    
+    uint32_t getMaxSWnd();
+    void setMaxSWnd(uint32_t wind);
+    
+    uint32_t getAppNewData();
+    void setAppNewData(uint32_t data);
+  
+    bool urgentSignaled();
+    void setUrgentSignaled(bool sig);
+    
+    bool pushSeen();
+    void setPushSeen(bool seen);
+    
+    uint16_t getPeerMss();
+    void setPeerMss(uint16_t mss);
+    
+    uint16_t getMyMss();
+    void setMyMss(uint16_t mss);
+        
+    std::deque<TcpSegmentSlice>& getArrangedSegments();
+    int getArrangedSegmentByteCount();
+    void setArrangedSegmentByteCount(int bytes);
+    
+    std::deque<ReceiveEv>& getRecQueue();
+    
+    bool getNagle();
+    void setNagle(bool ngle);
+    
+    std::deque<SendEv>& getSendQueue();
+    int getSendQueueByteCount();
+    void setSendQueueByteCount(int bytes);
+    
+    std::deque<CloseEv>& getCloseQueue();
+    
+    State* getCurrentState();
+    void setCurrentState(std::unique_ptr<State> s);
+    
+    bool wasPassiveOpen();
+    void setPassiveOpen(bool passive);
+    
+    bool swsTimerExpired();
+    bool swsTimerStopped();
+    void stopSwsTimer();
+    void resetSwsTimer();
+    
+  private;
     int id = 0;
     App* parentApp;
     
@@ -151,20 +257,15 @@ class Tcb{
     std::deque<TcpSegmentSlice> arrangedSegments;
     int arrangedSegmentsByteCount = 0;
     
-    std::queue<ReceiveEv> recQueue;
+    std::deque<ReceiveEv> recQueue;
     
     bool nagle = false;
-    std::queue<SendEv> sendQueue;
+    std::deque<SendEv> sendQueue;
     int sendQueueByteCount = 0;
     std::chrono::milliseconds swsTimerInterval{300};
     std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
-    
-    bool swsTimerExpired();
-    bool swsTimerStopped();
-    void stopSwsTimer();
-    void resetSwsTimer();
-    
-    std::queue<CloseEv> closeQueue;
+        
+    std::deque<CloseEv> closeQueue;
     
     std::shared_ptr<State> currentState;
     bool passiveOpen = false;
