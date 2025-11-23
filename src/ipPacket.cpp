@@ -4,13 +4,11 @@
 #include <iostream>
 using namespace std;
 
-IpPacket::IpPacket(): tcpPacket{} {};
-
 IpOption::IpOption(uint8_t t, uint8_t len, bool hasLen): type(t), length(len), hasLength(hasLen){};
 
 uint8_t IpOption::getType(){ return type; }
 uint8_t IpOption::getLength(){ return length; }
-bool IpOption::hasLength(){ return hasLength; }
+bool IpOption::getHasLength(){ return hasLength; }
 vector<uint8_t>& IpOption::getData() { return data; }
 
 void IpOption::print(){
@@ -172,7 +170,7 @@ uint16_t IpPacket::getIdent(){ return identification;}
 uint8_t IpPacket::getTtl(){ return ttl;}
 uint8_t IpPacket::getProto(){return protocol;}
 uint16_t IpPacket::getChecksum(){return headerChecksum;}
-std::vector<IpOption>& IpPacket::getOptions{ return optionList; }
+std::vector<IpOption>& IpPacket::getOptions(){ return optionList; }
 TcpPacket& IpPacket::getTcpPacket(){ return tcpPacket; }
 
 
@@ -186,7 +184,7 @@ void IpPacket::print(){
 	cout << "total length: " << totalLength << endl;
 	cout << "identification: " << identification  << endl;
 	cout << "///Flags///" << endl;
-	for(int i = static_cast<int>(IpPacketFlags::moreFrag); i < static_cast<int>(IpPacketFlags::reserved) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<IpPacketFlags>(i))) << endl;
+	for(int i = static_cast<int>(IpPacketFlags::MOREFRAG); i < static_cast<int>(IpPacketFlags::RESERVED) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<IpPacketFlags>(i))) << endl;
 	cout << "///////////" << endl;
 	cout << "fragment offset: " << getFragOffset() << endl;
 	cout << "ttl: " << static_cast<unsigned int>(ttl)  << endl;
@@ -226,7 +224,7 @@ uint32_t IpPacket::getOptionListByteCount(){
   for(auto i = optionList.begin(); i < optionList.end(); i++){
     IpOption o = *i;
     num = num + 1; //kind byte
-    if(o.hasLength()){
+    if(o.getHasLength()){
       num = num + 1;
     }
     num = num + o.getData().size();

@@ -28,7 +28,23 @@ unordered_map<uint16_t,bool> usedPorts;
 State::State(){}
 State::~State(){}
 
+Event::Event(uint32_t ident): id(ident){}
+OpenEv::OpenEv(bool p, uint32_t id): Event(id), passive(p){}
+bool OpenEv::isPassive(){ return passive; }
+SegmentEv::SegmentEv(IpPacket ipPacket, uint32_t id): Event(id), ipPacket(ipPacket){}
+IpPacket& SegmentEv::getIpPacket(){ return ipPacket; }
+SendEv::SendEv(std::deque<uint8_t> d, bool urg, bool psh, uint32_t id): Event(id), data(d), urgent(urg), push(psh){}
+std::deque<uint8_t>& SendEv::getData(){ return data; }
+bool SendEv::isUrgent(){ return urgent; }
+bool SendEv::isPush(){ return push; }
+ReceiveEv::ReceiveEv(uint32_t a, std::vector<uint8_t> buff, uint32_t id): Event(id), amount(a), providedBuffer(buff){}
+uint32_t ReceiveEv::getAmount(){ return amount; }
+std::vector<uint8_t>& ReceiveEv::getBuffer(){ return providedBuffer; }
+CloseEv::CloseEv(uint32_t id): Event(id){}
+AbortEv::AbortEv(uint32_t id): Event(id){}
+
 int Tcb::getId(){ return id; }
+App* Tcb::getParentApp(){ return parentApp; }
 LocalPair Tcb::getLocalPair(){ return lP; }
 RemotePair Tcb::getRemotePair(){ return rP; }
 std::vector<TcpPacket>& Tcb::getRetransmitQueue(){ return retransmit; }
@@ -58,17 +74,17 @@ uint32_t Tcb::getMaxSWnd(){ return maxSWnd; }
 void Tcb::setMaxSWnd(uint32_t wind){ maxSWnd = wind; }
 uint32_t Tcb::getAppNewData(){ return appNewData; }
 void Tcb::setAppNewData(uint32_t data){ appNewData = data; }
-bool Tcb::urgentSignaled(){ return urgentSignaled; }
+bool Tcb::getUrgentSignaled(){ return urgentSignaled; }
 void Tcb::setUrgentSignaled(bool sig){ urgentSignaled = sig; }
-bool Tcb::pushSeen(){ return pushSeen; }
+bool Tcb::getPushSeen(){ return pushSeen; }
 void Tcb::setPushSeen(bool seen){ pushSeen = seen; }
 uint16_t Tcb::getPeerMss(){ return peerMss; }
 void Tcb::setPeerMss(uint16_t mss){ peerMss = mss; }
 uint16_t Tcb::getMyMss(){ return myMss; }
 void Tcb::setMyMss(uint16_t mss){ myMss = mss; }
 std::deque<TcpSegmentSlice>& Tcb::getArrangedSegments(){ return arrangedSegments; }
-int Tcb::getArrangedSegmentByteCount(){ return arrangedSegmentByteCount; }
-void Tcb::setArrangedSegmentByteCount(int bytes){ arrangedSegmentByteCount = bytes; }
+int Tcb::getArrangedSegmentByteCount(){ return arrangedSegmentsByteCount; }
+void Tcb::setArrangedSegmentByteCount(int bytes){ arrangedSegmentsByteCount = bytes; }
 std::deque<ReceiveEv>& Tcb::getRecQueue(){ return recQueue; }
 bool Tcb::getNagle(){ return nagle; }
 void Tcb::setNagle(bool ngle){ nagle = ngle; }
@@ -113,13 +129,13 @@ the user should check for unspecified as an error
 */
 uint16_t pickDynPort(){
   
-  for(uint16_t p = dynPortStart; p <= dynPortEnd; p++){
+  for(uint16_t p = DYN_PORT_START; p <= DYN_PORT_END; p++){
     if(usedPorts.find(p) == usedPorts.end()){
       usedPorts[p] = true;
       return p;
     }
   }
-  return Unspecified;
+  return UNSPECIFIED;
 
 }
 
@@ -157,8 +173,8 @@ uint32_t pickDynAddr(){
 
 void removeConn(Tcb& b){
 
-  reclaimId(b.id);
-  ConnPair p(b.lP,b.rP);
+  reclaimId(b.getId());
+  ConnPair p(b.getLocalPair(),b.getRemotePair());
   connections.erase(p);
 }
 
@@ -173,98 +189,99 @@ void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest
   }
 }
 
-int pickRealIsn(Tcb& block){
+bool Tcb::pickRealIsn(){
 
   chrono::time_point t = chrono::system_clock::now();
   chrono::duration d = t.time_since_epoch();
   uint32_t tVal = d.count();
 
-  unsigned char randBuffer[keyLen];
-  if(RAND_bytes(randBuffer, keyLen) < 1){
+  unsigned char randBuffer[KEY_LEN];
+  if(RAND_bytes(randBuffer, KEY_LEN) < 1){
     ERR_print_errors_fp(stderr);
-    return -1;
+    return false;
   }
-  unsigned char buffer[keyLen + (sizeof(block.rP.first) * 2) + (sizeof(block.rP.second) * 2)];
+  
+  unsigned char buffer[KEY_LEN + (sizeof(rP.first) * 2) + (sizeof(rP.second) * 2)];
   
   size_t i = 0;
-  size_t end = sizeof(block.rP.first);
+  size_t end = sizeof(rP.first);
   for(;i < end; i++){
-    size_t shift = ((sizeof(block.rP.first) -1) * 8) - (8 * i);
+    size_t shift = ((sizeof(rP.first) -1) * 8) - (8 * i);
     uint32_t val = 0xff;
-    buffer[i] = (block.rP.first & (val << shift)) >> shift;
+    buffer[i] = (rP.first & (val << shift)) >> shift;
   }
-  end = end + sizeof(block.lP.first);
+  end = end + sizeof(lP.first);
   for(; i < end; i++){
-    size_t shift = ((sizeof(block.lP.first) -1) * 8) - (8 * i);
+    size_t shift = ((sizeof(lP.first) -1) * 8) - (8 * i);
     uint32_t val = 0xff;
-    buffer[i] = (block.lP.first & (val << shift)) >> shift;
+    buffer[i] = (lP.first & (val << shift)) >> shift;
   }
-  end = end + sizeof(block.rP.second);
+  end = end + sizeof(rP.second);
   for(; i < end; i++){
-    size_t shift = ((sizeof(block.rP.second) -1) * 8) - (8 * i);
+    size_t shift = ((sizeof(rP.second) -1) * 8) - (8 * i);
     uint32_t val = 0xff;
-    buffer[i] = (block.rP.second & (val << shift)) >> shift;
+    buffer[i] = (rP.second & (val << shift)) >> shift;
   }
-  end = end + sizeof(block.lP.second);
+  end = end + sizeof(lP.second);
   for(; i < end; i++){
-    size_t shift = ((sizeof(block.lP.second) -1) * 8) - (8 * i);
+    size_t shift = ((sizeof(lP.second) -1) * 8) - (8 * i);
     uint32_t val = 0xff;
-    buffer[i] = (block.lP.second & (val << shift)) >> shift;
+    buffer[i] = (lP.second & (val << shift)) >> shift;
   }
 
-  for(size_t j = 0; j < keyLen; j++){
+  for(size_t j = 0; j < KEY_LEN; j++){
     buffer[i+j] = randBuffer[j];
   }
   
   EVP_MD_CTX* ctx = EVP_MD_CTX_new();
   if(ctx == NULL){
     cleanup(-1,NULL,ctx,NULL);
-    return -1;
+    return false;
   }
   
   EVP_MD* sha256 = EVP_MD_fetch(NULL,"SHA256", NULL);
   if(!EVP_DigestInit_ex(ctx,sha256,NULL)){
     cleanup(-1,sha256,ctx,NULL);
-    return -1;
+    return false;
   }
   
   if( !EVP_DigestUpdate(ctx, buffer, sizeof(buffer))){
     cleanup(-1,sha256,ctx,NULL);
-    return -1;
+    return false;
   }
   
   unsigned char* outdigest = (unsigned char*) OPENSSL_malloc(EVP_MD_get_size(sha256));
   if(outdigest == NULL){
     cleanup(-1, sha256,ctx,outdigest);
-    return -1;
+    return false;
   }
   
   unsigned int len = 0;
   if(!EVP_DigestFinal_ex(ctx, outdigest, &len)){
     cleanup(-1,sha256,ctx,outdigest);
-    return -1;
+    return false;
   }
   
   cleanup(0,sha256,ctx,outdigest);
   
   if(len < 4){
-    return -1;
+    return false;
   }
   
   uint32_t bufferTrunc = outdigest[0] | (outdigest[1] << 8) | (outdigest[2] << 16) | (outdigest[3] << 24);
   
-  block.iss = tVal + bufferTrunc;
-  return 0;
+  iss = tVal + bufferTrunc;
+  return true;
 }
 
 
 //simulates passing a passing an info/error message to a connection that belongs to a hooked up application.
 void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
-  b.parentApp->connNotifs[b.id].push_back(c);
+  b.getParentApp()->getConnNotifs()[b.getId()].push_back(c);
 }
 //simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
 void notifyApp(App* app, TcpCode c, uint32_t eId){
-  app->appNotifs.push_back(c);
+  app->getAppNotifs().push_back(c);
 }
 
 
@@ -275,34 +292,41 @@ bool checkSecurity(Tcb& b, IpPacket& p){
 
 //MSS: maximum tcp segment(data only) size.
 uint32_t getMSSValue(uint32_t destAddr){
-  uint32_t maxMss = getMmsR() - tcpMinHeaderLen;
-  uint32_t calcMss = getMtu(destAddr) - ipMinHeaderLen - tcpMinHeaderLen;
+  uint32_t maxMss = getMmsR() - TCP_MIN_HEADER_LEN;
+  uint32_t calcMss = getMtu(destAddr) - IP_MIN_HEADER_LEN - TCP_MIN_HEADER_LEN;
   if(calcMss > maxMss) return maxMss;
   else return calcMss;
 }
 
+/*verifyRecWindow-
+returns true if the seqnum from the peer packet falls in our current window, false if not
+*/
 bool verifyRecWindow(Tcb& b, TcpPacket& p){
 
   uint32_t segLen = p.getSegSize();
   uint32_t seqNum = p.getSeqNum();
+  uint32_t rWnd = b.getRWnd();
+  uint32_t rNxt = b.getRNxt();
   if(segLen > 0){
-    if(b.rWnd >0){
+    if(rWnd >0){
       uint32_t lastByte = seqNum + segLen - 1;
-      return ((b.rNxt <= seqNum && seqNum < (b.rNxt + b.rWnd)) || (b.rNxt <= lastByte && lastByte < (b.rNxt + b.rWnd)));
+      return ((rNxt <= seqNum && seqNum < (rNxt + rWnd)) || (rNxt <= lastByte && lastByte < (rNxt + rWnd)));
     }
     else return false;
   
   }
   else{
-    if(b.rWnd > 0){
-      return (b.rNxt <= seqNum && seqNum < + (b.rWnd + b.rNxt));
+    if(rWnd > 0){
+      return (rNxt <= seqNum && seqNum < + (rWnd + rNxt));
     }
     else{
-      return (seqNum == b.rNxt);
+      return (seqNum == rNxt);
     }
   }
 
 }
+
+
 /*
 sendReset-
 This method sends a rst packet, given its acknum, ackflag, and seqnum. These fields are handled
@@ -318,9 +342,9 @@ bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ac
   vector<uint8_t> data;
   
   if(ackFlag){
-    sPacket.setFlag(TcpPacketFlags::ack);
+    sPacket.setFlag(TcpPacketFlags::ACK);
   }
-  sPacket.setFlag(TcpPacketFlags::rst).setSrcPort(lP.second).setDestPort(rP.second).setSeq(seqNum).setAck(ackNum).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+  sPacket.setFlag(TcpPacketFlags::RST).setSrcPort(lP.second).setDestPort(rP.second).setSeq(seqNum).setAck(ackNum).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
   return sendPacket(socket, rP.first, sPacket);
   
@@ -329,9 +353,11 @@ bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ac
 //assumes seq num, data, urgPointer and urgFlag have already been set
 bool sendDataPacket(int socket, Tcb& b, TcpPacket& p){
 
- p.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setAck(b.rNxt).setWindow(b.rWnd).setOptions(vector<TcpOption>{}).setRealChecksum(b.lP.first, b.rP.first);
+  LocalPair lP = b.getLocalPair();
+  RemotePair rP = b.getRemotePair();
+ p.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(vector<TcpOption>{}).setRealChecksum(lP.first, rP.first);
       
-  return sendPacket(socket,b.rP.first,p);
+  return sendPacket(socket,rP.first,p);
 }
 
 bool sendCurrentAck(int socket, Tcb& b){
@@ -339,9 +365,11 @@ bool sendCurrentAck(int socket, Tcb& b){
   TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  sPacket.setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+  LocalPair lP = b.getLocalPair();
+  RemotePair rP = b.getRemotePair();
+ sPacket.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.getSNxt()).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
-  return sendPacket(socket,b.rP.first,sPacket);
+  return sendPacket(socket,rP.first,sPacket);
 }
 
 bool sendFin(int socket, Tcb& b){
@@ -349,9 +377,11 @@ bool sendFin(int socket, Tcb& b){
   TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  sPacket.setFlag(TcpPacketFlags::fin).setFlag(TcpPacketFlags::ack).setSrcPort(b.lP.second).setDestPort(b.rP.second).setSeq(b.sNxt).setAck(b.rNxt).setWindow(b.rWnd).setOptions(options).setPayload(data).setRealChecksum(b.lP.first, b.rP.first);
+  LocalPair lP = b.getLocalPair();
+  RemotePair rP = b.getRemotePair();
+  sPacket.setFlag(TcpPacketFlags::FIN).setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.getSNxt()).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
-  return sendPacket(socket,b.rP.first,sPacket);
+  return sendPacket(socket,rP.first,sPacket);
   
 }
 
@@ -362,87 +392,85 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
   TcpPacket sPacket;
      
   if(sendAck){
-    sPacket.setFlag(TcpPacketFlags::ack);
-    sPacket.setAck(b.rNxt);
+    sPacket.setFlag(TcpPacketFlags::ACK);
+    sPacket.setAck(b.getRNxt());
   }
-  sPacket.setFlag(TcpPacketFlags::syn).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.iss).setWindow(b.rWnd).setOptions(options).setPayload(data);
+  sPacket.setFlag(TcpPacketFlags::SYN).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.getIss()).setWindow(b.getRWnd()).setOptions(options).setPayload(data);
     
-  if(b.myMss != defaultMSS){
+  if(b.getMyMss() != DEFAULT_MSS){
     vector<uint8_t> mss;
-    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.myMss),mss);
-    TcpOption mssOpt(static_cast<uint8_t>(TcpOptionKind::mss), 0x4, true, mss);
-    options.push_back(mssOpt);
+    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.getMyMss()),mss);
+    TcpOption mssOpt(static_cast<uint8_t>(TcpOptionKind::MSS), 0x4, true, mss);
+    sPacket.getOptions().push_back(mssOpt);
     sPacket.setDataOffset(sPacket.getDataOffset() + 1); //since the mss option is 4 bytes we can cleanly add one word to offset.
   }
   
-  sPacket.optionList = options;
   sPacket.setRealChecksum(lp.first, rp.first);  
   return sendPacket(socket, rp.first, sPacket);
   
 }
 
 
-
 LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
-  bool passive = oe.passive;
+  bool passive = oe.isPassive();
   if(!passive){
     //no need to check for active unspec again, outer open call already does it
-    pickRealIsn(b);
+    b.pickRealIsn();
     
-    bool ls = sendSyn(socket, b, b.lP, b.rP, false);
+    bool ls = sendSyn(socket, b, b.getLocalPair(), b.getRemotePair(), false);
     if(ls){
-      b.sUna = b.iss;
-      b.sNxt = b.iss + 1;
-      b.passiveOpen = false;
-      b.currentState = make_shared<SynSentS>();
-      return LocalCode::Success;
+      b.setSUna(b.getIss());
+      b.setSNxt(b.getIss() + 1);
+      b.setPassiveOpen(false);
+      b.setCurrentState(make_unique<SynSentS>());
+      return LocalCode::SUCCESS;
     }
-    else return LocalCode::Socket;
+    else return LocalCode::SOCKET;
     
   }
   else{
-    notifyApp(b, TcpCode::DupConn, oe.id);
-    return LocalCode::Success;
+    notifyApp(b, TcpCode::DUPCONN, oe.getId());
+    return LocalCode::SUCCESS;
   }
   
 }
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode SynRecS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode EstabS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode ClosingS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode LastAckS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 LocalCode TimeWaitS::processEvent(int socket, Tcb& b, OpenEv& oe){
-  notifyApp(b, TcpCode::DupConn, oe.id);
-  return LocalCode::Success;
+  notifyApp(b, TcpCode::DUPCONN, oe.getId());
+  return LocalCode::SUCCESS;
 }
 
 

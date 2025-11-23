@@ -30,7 +30,7 @@ class TcpOption{
     uint16_t calcSize();  
     uint8_t getKind();
     uint8_t getLength();
-    bool hasLength();
+    bool getHasLength();
     std::vector<uint8_t>& getData();
   private:
     uint16_t size;
@@ -69,7 +69,7 @@ class TcpSegmentSlice{
 class TcpPacket{
 
   public:
-    TcpPacket();
+    TcpPacket() = default;
     TcpPacket& setFlag(TcpPacketFlags flag);
     TcpPacket& setSrcPort(uint16_t source);
     TcpPacket& setDestPort(uint16_t dest);

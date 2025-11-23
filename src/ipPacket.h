@@ -58,8 +58,8 @@ class IpOption{
     
     uint8_t getType();
     uint8_t getLength();
-    bool hasLength();
-    vector<uint8_t>& getData();
+    bool getHasLength();
+    std::vector<uint8_t>& getData();
   private:
     uint8_t type;
     uint8_t length;
@@ -76,7 +76,7 @@ enum class IpPacketFlags{
 class IpPacket{
 
   public:
-    IpPacket();
+    IpPacket() = default;
     IpPacket& setVersion(uint8_t vers);
     IpPacket& setIHL(uint8_t ihl);
     IpPacket& setDSCP(uint8_t dscp);

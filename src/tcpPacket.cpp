@@ -31,7 +31,7 @@ uint8_t TcpOption::getKind(){
 uint8_t TcpOption::getLength(){
   return length;
 }
-bool TcpOption::hasLength(){
+bool TcpOption::getHasLength(){
   return hasLength;
 }
 std::vector<uint8_t>& TcpOption::getData(){
@@ -119,10 +119,6 @@ void onesCompAdd(uint16_t& num1, uint16_t num2){
   num1 = static_cast<uint16_t>(res);
 }
 
-TcpPacket::TcpPacket(){
-  setDataOffset(defaultTcpDataOffset);
-}
-
 TcpPacket& TcpPacket::setRealChecksum(uint32_t sourceAddress, uint32_t destAddress){
   
   uint16_t accum = 0;
@@ -184,7 +180,7 @@ uint16_t TcpPacket::calcSize(){
     optSize += iter->calcSize();
   }
   
-  return tcpMinHeaderLen + optSize + payload.size(); 
+  return TCP_MIN_HEADER_LEN + optSize + payload.size(); 
 
 }
 uint8_t TcpPacket::getDataOffset(){
@@ -212,7 +208,7 @@ void TcpPacket::print(){
 	cout << "dataOffset: " << static_cast<unsigned int>(getDataOffset()) << endl;
 	cout << "reserved: " << static_cast<unsigned int>(getReserved())  << endl;
 	cout << "+++Flags+++" << endl;
-	for(int i = static_cast<int>(TcpPacketFlags::fin); i < static_cast<int>(TcpPacketFlags::cwr) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<TcpPacketFlags>(i))) << endl;
+	for(int i = static_cast<int>(TcpPacketFlags::FIN); i < static_cast<int>(TcpPacketFlags::CWR) + 1; i++) cout << "flag " << i << ": " << static_cast<unsigned int>(getFlag(static_cast<TcpPacketFlags>(i))) << endl;
 	cout << "+++++++++++" << endl;
 	cout << "window: " << window << endl;
 	cout << "checksum: " << checksum  << endl;
@@ -227,7 +223,7 @@ void TcpPacket::print(){
 }
 
 uint32_t TcpPacket::getSegSize(){
-  return payload.size() + getFlag(TcpPacketFlags::syn) + getFlag(TcpPacketFlags::fin);
+  return payload.size() + getFlag(TcpPacketFlags::SYN) + getFlag(TcpPacketFlags::FIN);
 }
 
 uint16_t TcpPacket::getChecksum(){
@@ -301,7 +297,7 @@ void TcpPacket::toBuffer(vector<uint8_t>& buff){
 
 TcpPacketCode TcpPacket::fromBuffer(uint8_t* buffer, int numBytes){
   
-  if(numBytes < tcpMinHeaderLen){
+  if(numBytes < TCP_MIN_HEADER_LEN){
     return TcpPacketCode::HEADER;
   }
 

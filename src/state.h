@@ -8,14 +8,14 @@
 #include <memory>
 #include <chrono>
 
-const int UNSPECIFIED = 0;
+const uint16_t UNSPECIFIED = 0;
 const int KEY_LEN = 16; //128 bits = 16 bytes recommended by RFC 6528
-const int DYN_PORT_START = 49152;
-const int DYN_PORT_END = 65535;
+const uint16_t DYN_PORT_START = 49152;
+const uint16_t DYN_PORT_END = 65535;
 const int ARRANGED_SEGMENTS_BYTES_MAX = 500;
 const int REC_QUEUE_MAX = 500;
 const int SEND_QUEUE_BYTE_MAX = 500;
-const int DEFAULT_MSS = 536; // maximum segment size
+const uint16_t DEFAULT_MSS = 536; // maximum segment size
 
 class Tcb;
 class State;
@@ -30,10 +30,9 @@ struct ConnHash{
 
 typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
 
-#ifdef TEST_NO_SEND
-  extern std::unordered_map<int, ConnPair> idMap;
-  extern ConnectionMap connections;
-#endif
+std::unordered_map<int, ConnPair> idMap;
+ConnectionMap connections;
+
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
@@ -137,6 +136,7 @@ class Tcb{
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
     int getId();
+    App* getParentApp();
     LocalPair getLocalPair();
     RemotePair getRemotePair();
     
@@ -150,6 +150,7 @@ class Tcb{
     uint32_t getSWnd();
     void setSWnd(uint32_t wind);
     
+    bool pickRealIsn();
     uint32_t getIss();
     void setIss(uint32_t seq);
     
@@ -162,7 +163,7 @@ class Tcb{
     uint32_t getSWl2();
     void setSWl2(uint32_t ack);
 
-    uint32_t getRNxt()
+    uint32_t getRNxt();
     void setRNxt(uint32_t seq);
     
     uint32_t getRWnd();
@@ -180,10 +181,10 @@ class Tcb{
     uint32_t getAppNewData();
     void setAppNewData(uint32_t data);
   
-    bool urgentSignaled();
+    bool getUrgentSignaled();
     void setUrgentSignaled(bool sig);
     
-    bool pushSeen();
+    bool getPushSeen();
     void setPushSeen(bool seen);
     
     uint16_t getPeerMss();
@@ -218,7 +219,7 @@ class Tcb{
     void stopSwsTimer();
     void resetSwsTimer();
     
-  private;
+  private:
     int id = 0;
     App* parentApp;
     
@@ -251,8 +252,8 @@ class Tcb{
     bool pushSeen = false;
     
     //16 bits to match ip packet 16 bit length field.
-    uint16_t peerMss = defaultMSS;
-    uint16_t myMss = defaultMSS;
+    uint16_t peerMss = DEFAULT_MSS;
+    uint16_t myMss = DEFAULT_MSS;
         
     std::deque<TcpSegmentSlice> arrangedSegments;
     int arrangedSegmentsByteCount = 0;
