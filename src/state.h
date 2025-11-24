@@ -135,91 +135,53 @@ class Tcb{
   public:
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
-    int getId();
-    App* getParentApp();
-    LocalPair getLocalPair();
-    RemotePair getRemotePair();
-    
-    std::vector<TcpPacket>& getRetransmitQueue();
-    uint32_t getSUna();
-    void setSUna(uint32_t seq);
-    
-    uint32_t getSNxt();
-    void setSNxt(uint32_t seq);
-    
-    uint32_t getSWnd();
-    void setSWnd(uint32_t wind);
-    
-    bool pickRealIsn();
-    uint32_t getIss();
-    void setIss(uint32_t seq);
-    
-    uint32_t getSUp();
-    void setSUp(uint32_t up);
-    
-    uint32_t getSWl1();
-    void setSWl1(uint32_t seq);
-    
-    uint32_t getSWl2();
-    void setSWl2(uint32_t ack);
-
-    uint32_t getRNxt();
-    void setRNxt(uint32_t seq);
-    
-    uint32_t getRWnd();
-    void setRWnd(uint32_t wind);
-   
-    uint32_t getRUp();
-    void setRUp(uint32_t up);
-    
-    uint32_t getIrs();
-    void setIrs(uint32_t seq);
-    
-    uint32_t getMaxSWnd();
-    void setMaxSWnd(uint32_t wind);
-    
-    uint32_t getAppNewData();
-    void setAppNewData(uint32_t data);
-  
-    bool getUrgentSignaled();
-    void setUrgentSignaled(bool sig);
-    
-    bool getPushSeen();
-    void setPushSeen(bool seen);
-    
-    uint16_t getPeerMss();
-    void setPeerMss(uint16_t mss);
-    
-    uint16_t getMyMss();
-    void setMyMss(uint16_t mss);
         
-    std::deque<TcpSegmentSlice>& getArrangedSegments();
-    int getArrangedSegmentByteCount();
-    void setArrangedSegmentByteCount(int bytes);
-    
-    std::deque<ReceiveEv>& getRecQueue();
-    
-    bool getNagle();
-    void setNagle(bool ngle);
-    
-    std::deque<SendEv>& getSendQueue();
-    int getSendQueueByteCount();
-    void setSendQueueByteCount(int bytes);
-    
-    std::deque<CloseEv>& getCloseQueue();
-    
-    State* getCurrentState();
-    void setCurrentState(std::unique_ptr<State> s);
-    
-    bool wasPassiveOpen();
-    void setPassiveOpen(bool passive);
-    
     bool swsTimerExpired();
     bool swsTimerStopped();
     void stopSwsTimer();
     void resetSwsTimer();
     
   private:
+  
+    /* 
+    These state processing methods are seem kind of over-complicated, but Im doing this to solve three goals
+    1) I want Tcb to be initiating the update of its own state based on a given event
+    2) I want to avoid using a switch statement based on the current tcp state a Tcb has.
+    3) I want Tcb to access its own inner vars freely, which really dont need to be public/behind getters or setters
+    
+    So the flow is 
+    1)Tcb initiates state change from event with processEventEntry 
+    2)Inside that uses dynamic type of tcp state object to call correct State handle method
+    3)Inside that pass control back to Tcb state process function
+    */
+    LocalCode proccessEventEntry(int socket, OpenEv& oe);
+    LocalCode proccessEventEntry(int socket, SegmentEv& se, RemoteCode& remCode);
+    LocalCode proccessEventEntry(int socket, SendEv& se);
+    LocalCode proccessEventEntry(int socket, ReceiveEv& re);
+    LocalCode proccessEventEntry(int socket, CloseEv& ce);
+    LocalCode proccessEventEntry(int socket, AbortEv& ae);
+    
+    LocalCode processListenS(int socket,OpenEv& oe);
+    LocalCode processListenS(int socket, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processListenS(int socket, SendEv& se);
+    LocalCode processListenS(int socket, ReceiveEv& se);
+    LocalCode processListenS(int socket, CloseEv& se);
+    LocalCode processListenS(int socket, AbortEv& se);
+    
+    LocalCode processSynSentS(int socket,OpenEv& oe);
+    LocalCode processSynSentS(int socket, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processSynSentS(int socket, SendEv& se);
+    LocalCode processSynSentS(int socket, ReceiveEv& se);
+    LocalCode processSynSentS(int socket, CloseEv& se);
+    LocalCode processSynSentS(int socket, AbortEv& se);
+    
+    LocalCode processSynRecS(int socket,OpenEv& oe);
+    LocalCode processSynRecS(int socket, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processSynRecS(int socket, SendEv& se);
+    LocalCode processSynRecS(int socket, ReceiveEv& se);
+    LocalCode processSynRecS(int socket, CloseEv& se);
+    LocalCode processSynRecS(int socket, AbortEv& se);
+    
     int id = 0;
     App* parentApp;
     
