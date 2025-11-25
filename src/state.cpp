@@ -43,10 +43,14 @@ std::vector<uint8_t>& ReceiveEv::getBuffer(){ return providedBuffer; }
 CloseEv::CloseEv(uint32_t id): Event(id){}
 AbortEv::AbortEv(uint32_t id): Event(id){}
 
+LocalCode Tcb::proccessEventEntry(int socket, OpenEv& oe){ return currentState->processEvent(socket, *this, oe); }
+LocalCode Tcb::proccessEventEntry(int socket, SegmentEv& se, RemoteCode& remCode){ return currentState->processEvent(socket, *this, se, remCode); }
+LocalCode Tcb::proccessEventEntry(int socket, SendEv& se){ return currentState->processEvent(socket, *this, se); }
+LocalCode Tcb::proccessEventEntry(int socket, ReceiveEv& re){ return currentState->processEvent(socket, *this, re); }
+LocalCode Tcb::proccessEventEntry(int socket, CloseEv& ce){ return currentState->processEvent(socket, *this, ce); }
+LocalCode Tcb::proccessEventEntry(int socket, AbortEv& ae){ return currentState->processEvent(socket, *this, ae); }
 
-
-
-
+void Tcb::setCurrentState(std::unique_ptr<State> s){ currentState = std::move(s); }
 
 bool Tcb::swsTimerExpired(){
   if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
@@ -228,8 +232,8 @@ bool Tcb::pickRealIsn(){
 
 
 //simulates passing a passing an info/error message to a connection that belongs to a hooked up application.
-void notifyApp(Tcb&b, TcpCode c, uint32_t eId){
-  b.getParentApp()->getConnNotifs()[b.getId()].push_back(c);
+void Tcb::notifyApp(TcpCode c, uint32_t eId){
+  parentApp->getConnNotifs()[id].push_back(c);
 }
 //simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
 void notifyApp(App* app, TcpCode c, uint32_t eId){
@@ -253,12 +257,11 @@ uint32_t getMSSValue(uint32_t destAddr){
 /*verifyRecWindow-
 returns true if the seqnum from the peer packet falls in our current window, false if not
 */
-bool verifyRecWindow(Tcb& b, TcpPacket& p){
+bool Tcb::verifyRecWindow(TcpPacket& p){
 
   uint32_t segLen = p.getSegSize();
   uint32_t seqNum = p.getSeqNum();
-  uint32_t rWnd = b.getRWnd();
-  uint32_t rNxt = b.getRNxt();
+  
   if(segLen > 0){
     if(rWnd >0){
       uint32_t lastByte = seqNum + segLen - 1;
@@ -287,7 +290,7 @@ outside of this method. Any logic involving moving a connection to the next stat
 assumed to be handled outside of this method.
 */
 
-bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum){
+bool Tcb::sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum){
 
   TcpPacket sPacket;
   vector<TcpOption> options;
@@ -303,41 +306,35 @@ bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ac
 }
 
 //assumes seq num, data, urgPointer and urgFlag have already been set
-bool sendDataPacket(int socket, Tcb& b, TcpPacket& p){
+bool Tcb::sendDataPacket(int socket, TcpPacket& p){
 
-  LocalPair lP = b.getLocalPair();
-  RemotePair rP = b.getRemotePair();
- p.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(vector<TcpOption>{}).setRealChecksum(lP.first, rP.first);
+ p.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setAck(rNxt).setWindow(rWnd).setOptions(vector<TcpOption>{}).setRealChecksum(lP.first, rP.first);
       
   return sendPacket(socket,rP.first,p);
 }
 
-bool sendCurrentAck(int socket, Tcb& b){
+bool Tcb::sendCurrentAck(int socket){
 
   TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  LocalPair lP = b.getLocalPair();
-  RemotePair rP = b.getRemotePair();
- sPacket.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.getSNxt()).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+  sPacket.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(sNxt).setAck(rNxt).setWindow(rWnd).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
   return sendPacket(socket,rP.first,sPacket);
 }
 
-bool sendFin(int socket, Tcb& b){
+bool Tcb::sendFin(int socket){
 
   TcpPacket sPacket;
   vector<TcpOption> options;
   vector<uint8_t> data;
-  LocalPair lP = b.getLocalPair();
-  RemotePair rP = b.getRemotePair();
-  sPacket.setFlag(TcpPacketFlags::FIN).setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(b.getSNxt()).setAck(b.getRNxt()).setWindow(b.getRWnd()).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+  sPacket.setFlag(TcpPacketFlags::FIN).setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(sNxt).setAck(rNxt).setWindow(rWnd).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
   return sendPacket(socket,rP.first,sPacket);
   
 }
 
-bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
+bool Tcb::sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck){
 
   vector<TcpOption> options;
   vector<uint8_t> data;
@@ -345,13 +342,13 @@ bool sendSyn(int socket, Tcb& b, LocalPair lp, RemotePair rp, bool sendAck){
      
   if(sendAck){
     sPacket.setFlag(TcpPacketFlags::ACK);
-    sPacket.setAck(b.getRNxt());
+    sPacket.setAck(rNxt);
   }
-  sPacket.setFlag(TcpPacketFlags::SYN).setSrcPort(lp.second).setDestPort(rp.second).setSeq(b.getIss()).setWindow(b.getRWnd()).setOptions(options).setPayload(data);
+  sPacket.setFlag(TcpPacketFlags::SYN).setSrcPort(lp.second).setDestPort(rp.second).setSeq(iss).setWindow(rWnd).setOptions(options).setPayload(data);
     
-  if(b.getMyMss() != DEFAULT_MSS){
+  if(myMss != DEFAULT_MSS){
     vector<uint8_t> mss;
-    loadBytes<uint16_t>(toAltOrder<uint16_t>(b.getMyMss()),mss);
+    loadBytes<uint16_t>(toAltOrder<uint16_t>(myMss),mss);
     TcpOption mssOpt(static_cast<uint8_t>(TcpOptionKind::MSS), 0x4, true, mss);
     sPacket.getOptions().push_back(mssOpt);
     sPacket.setDataOffset(sPacket.getDataOffset() + 1); //since the mss option is 4 bytes we can cleanly add one word to offset.
@@ -370,11 +367,11 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
     //no need to check for active unspec again, outer open call already does it
     b.pickRealIsn();
     
-    bool ls = sendSyn(socket, b, b.getLocalPair(), b.getRemotePair(), false);
+    bool ls = sendSyn(socket, b, b.lP, b.getRemotePair(), false);
     if(ls){
-      b.setSUna(b.getIss());
-      b.setSNxt(b.getIss() + 1);
-      b.setPassiveOpen(false);
+      b.sUna = b.iss;
+      b.sNxt =  b.iss + 1;
+      b.passiveOpen = false;
       b.setCurrentState(make_unique<SynSentS>());
       return LocalCode::SUCCESS;
     }
