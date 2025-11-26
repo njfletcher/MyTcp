@@ -268,12 +268,15 @@ class Tcb{
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
     
-    LocalCode proccessEventEntry(int socket, OpenEv& oe);
-    LocalCode proccessEventEntry(int socket, SegmentEv& se, RemoteCode& remCode);
-    LocalCode proccessEventEntry(int socket, SendEv& se);
-    LocalCode proccessEventEntry(int socket, ReceiveEv& re);
-    LocalCode proccessEventEntry(int socket, CloseEv& ce);
-    LocalCode proccessEventEntry(int socket, AbortEv& ae); 
+    int getId();
+    ConnPair getConnPair();
+    
+    LocalCode processEventEntry(int socket, OpenEv& oe);
+    LocalCode processEventEntry(int socket, SegmentEv& se, RemoteCode& remCode);
+    LocalCode processEventEntry(int socket, SendEv& se);
+    LocalCode processEventEntry(int socket, ReceiveEv& re);
+    LocalCode processEventEntry(int socket, CloseEv& ce);
+    LocalCode processEventEntry(int socket, AbortEv& ae); 
     
     void notifyApp(TcpCode c, uint32_t eId);
     
@@ -284,7 +287,20 @@ class Tcb{
     
   private:
   
+    void checkAndSetPeerMSS(TcpPacket& tcpP);
+    
+    bool checkSecurity(IpPacket& p);
     bool verifyRecWindow(TcpPacket& p);
+    LocalCode checkSequenceNum(int socket, TcpPacket& tcpP, RemoteCode& remCode);
+    LocalCode checkReset(int socket, TcpPacket& tcpP, bool windowChecked, RemoteCode& remCode, bool& reset);
+    LocalCode checkSec(int socket, IpPacket& ipP, RemoteCode& remCode);
+    LocalCode checkSyn(int socket, TcpPacket& tcpP, RemoteCode& remCode);
+    LocalCode checkAck(int socket, TcpPacket& tcpP, RemoteCode& remCode);
+    LocalCode establishedAckLogic(int socket, TcpPacket& tcpP, RemoteCode& remCode);
+    LocalCode checkUrg(TcpPacket& tcpP, Event& e);
+    LocalCode processData(int socket, TcpPacket& tcpP);
+    LocalCode checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e);
+    
     bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
     bool sendDataPacket(int socket, TcpPacket& p);
     bool sendCurrentAck(int socket);
@@ -292,7 +308,12 @@ class Tcb{
     bool sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck);
     bool pickRealIsn();
     void setCurrentState(std::unique_ptr<State> s);
+    bool addToSendQueue(SendEv& se);
+    bool addToRecQueue(ReceiveEv& e);
     
+    LocalCode processRead(ReceiveEv& e);
+    LocalCode normalAbortLogic(int socket, AbortEv& e);
+
     int id = 0;
     App* parentApp;
     
