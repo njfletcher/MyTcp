@@ -4,7 +4,7 @@
 
 using namespace std;
 
-
+TcpSegmentSlice::TcpSegmentSlice(bool p, uint32_t seq, std::queue<uint8_t> data): push(p), seqNum(seq), unreadData(data) {}
 bool TcpSegmentSlice::isPush(){ return push; }
 uint32_t TcpSegmentSlice::getSeqNum(){ return seqNum; }
 std::queue<uint8_t>& TcpSegmentSlice::getData() { return unreadData; }
@@ -197,6 +197,10 @@ uint32_t TcpPacket::getSeqNum(){return seqNum;}
 uint32_t TcpPacket::getAckNum(){return ackNum;}
 uint16_t TcpPacket::getWindow(){return window;}
 uint16_t TcpPacket::getUrg(){return urgPointer;}
+
+std::vector<uint8_t>& TcpPacket::getPayload(){ return payload; }
+std::vector<TcpOption>& TcpPacket::getOptions(){ return optionList; }
+
 
 void TcpPacket::print(){
 

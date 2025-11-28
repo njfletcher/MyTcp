@@ -265,6 +265,9 @@ class Tcb{
     friend class LastAckS;
     friend class TimeWaitS;
     
+    static Tcb buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev);
+    
+    
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
     
@@ -278,6 +281,8 @@ class Tcb{
     LocalCode processEventEntry(int socket, CloseEv& ce);
     LocalCode processEventEntry(int socket, AbortEv& ae); 
     
+    
+    
     void notifyApp(TcpCode c, uint32_t eId);
     
     bool swsTimerExpired();
@@ -286,6 +291,8 @@ class Tcb{
     void resetSwsTimer();
     
   private:
+  
+    void setCurrentState(std::unique_ptr<State> s);
   
     void checkAndSetPeerMSS(TcpPacket& tcpP);
     
@@ -307,7 +314,6 @@ class Tcb{
     bool sendFin(int socket);
     bool sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck);
     bool pickRealIsn();
-    void setCurrentState(std::unique_ptr<State> s);
     bool addToSendQueue(SendEv& se);
     bool addToRecQueue(ReceiveEv& e);
     

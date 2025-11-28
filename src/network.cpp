@@ -9,7 +9,7 @@
 
 using namespace std;
 
-uint8_t ipBuffer[ipPacketMaxSize];
+uint8_t ipBuffer[IP_PACKET_MAX_SIZE];
 
 //TODO: look into path mtu discovery.
 uint32_t getMtu(uint32_t destAddr){
@@ -19,13 +19,13 @@ uint32_t getMtu(uint32_t destAddr){
 //MMS_R: maximum transport message that the ip implementation can receive and reassemble.
 //assuming for now that ip implementation can reassemble the max ip packet size
 uint32_t getMmsR(){
-  return ipPacketMaxSize - ipMinHeaderLen;
+  return IP_PACKET_MAX_SIZE - IP_MIN_HEADER_LEN;
 }
 
 //MMS_S: maximum transport message that the ip implementation can send.
 //assuming for now that ip implementation can send the max ip packet size
 uint32_t getMmsS(){
-  return ipPacketMaxSize - ipMinHeaderLen;
+  return IP_PACKET_MAX_SIZE - IP_MIN_HEADER_LEN;
 
 }
 
@@ -77,7 +77,7 @@ bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
 // goodPacket is a bool that represents whether or not the packet is a valid tcp/ip packet
 bool recPacket(int sock, IpPacket& packet, IpPacketCode& packetCode){
 
-  ssize_t numRec = recvfrom(sock,ipBuffer,ipPacketMaxSize,0,nullptr, nullptr);
+  ssize_t numRec = recvfrom(sock,ipBuffer,IP_PACKET_MAX_SIZE,0,nullptr, nullptr);
 	
   if(numRec < 0){
     return false;

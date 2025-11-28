@@ -28,7 +28,13 @@ unordered_map<uint16_t,bool> usedPorts;
 State::State(){}
 State::~State(){}
 
+App::App(int ident, std::deque<TcpCode> aNotif, std::unordered_map<int, std::deque<TcpCode> > cNotifs): id(ident), appNotifs(aNotif), connNotifs(cNotifs) {}
+int App::getId(){ return id; }
+std::deque<TcpCode>& App::getAppNotifs(){ return appNotifs; }
+std::unordered_map<int, std::deque<TcpCode> >& App::getConnNotifs(){ return connNotifs; }
+
 Event::Event(uint32_t ident): id(ident){}
+uint32_t Event::getId() { return id; }
 OpenEv::OpenEv(bool p, uint32_t id): Event(id), passive(p){}
 bool OpenEv::isPassive(){ return passive; }
 SegmentEv::SegmentEv(IpPacket ipPacket, uint32_t id): Event(id), ipPacket(ipPacket){}
@@ -1781,16 +1787,10 @@ LocalCode abort(App* app, int socket, LocalPair lP, RemotePair rP){
   return LocalCode::SUCCESS;
 }
 
-/*
-open-
-Models an open event call from an app to a kernel.
-AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
-createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
-*/
-LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
 
-  OpenEv ev(passive,0);
-  
+Tcb Tcb::buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev){
+
+  bool passive = ev.isPassive();
   Tcb newConn(app, lP, rP, passive);
   if(passive){
     newConn.setCurrentState(make_unique<ListenS>());
@@ -1798,8 +1798,9 @@ LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, 
   else{
     //unspecified remote info in active open does not make sense
     if(rP.first == UNSPECIFIED || rP.second == UNSPECIFIED){
-      notifyApp(app, TcpCode::ACTIVEUNSPEC, ev.getId());
-      return LocalCode::SUCCESS;
+      newConn.notifyApp(TcpCode::ACTIVEUNSPEC, ev.getId());
+      success = false;
+      return newConn;
     }
     newConn.setCurrentState(make_unique<SynSentS>());
   }
@@ -1811,8 +1812,9 @@ LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, 
       newConn.lP = lP;
     }
     else{
-      notifyApp(app, TcpCode::RESOURCES, ev.getId());
-      return LocalCode::SUCCESS;
+      newConn.notifyApp(TcpCode::RESOURCES, ev.getId());
+      success = false;
+      return newConn;
     }
   }
   if(lP.first == UNSPECIFIED){
@@ -1822,22 +1824,15 @@ LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, 
   }
   
   ConnPair p(lP,rP);
-  if(connections.find(p) != connections.end()){
-    //duplicate connection
-    Tcb& oldConn = connections[p];
-    return oldConn.processEventEntry(socket, ev); 
-    
-  }
-  
   int id = 0;
   bool idWorked = pickId(id);
   if(idWorked) idMap[id] = p;
   else{
-    notifyApp(app,TcpCode::RESOURCES,ev.getId());
-    return LocalCode::SUCCESS;
+    newConn.notifyApp(TcpCode::RESOURCES,ev.getId());
+    success = false;
+    return newConn;
   }
     
-  //finally need to send initial syn packet in active open because state is set to synOpen
   if(!passive){
     newConn.pickRealIsn();
   
@@ -1849,14 +1844,38 @@ LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, 
     }
     else{
       reclaimId(id);
-      return LocalCode::SOCKET;
+      success = false;
+      return newConn;
     }
 
   }
   
   newConn.id = id;
-  connections[p] = newConn;
   createdId = id;
+  success = true;
+  return newConn;
+}
+
+/*
+open-
+Models an open event call from an app to a kernel.
+AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
+createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
+*/
+LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
+
+  OpenEv ev(passive,0);
+  
+  ConnPair p(lP,rP);
+  if(connections.find(p) != connections.end()){
+    //duplicate connection
+    Tcb& oldConn = connections[p];
+    return oldConn.processEventEntry(socket, ev);   
+  }
+  
+  bool success = false;
+  Tcb b = Tcb::buildTcbFromOpen(success, app, socket, lP, rP, createdId, ev);
+  if(success) connections[p] = move(b);
   return LocalCode::SUCCESS;
   
 }
