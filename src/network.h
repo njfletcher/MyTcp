@@ -4,7 +4,7 @@
 #define TCP_PROTO 6 
 #define defaultMTU 576
 
-bool bindSocket(uint32_t sourceAddr, int& socket);
+bool bindSocket(char* sourceAddress, int& socket);
 bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p);
 bool recPacket(int sock, IpPacket& packet, IpPacketCode& packetCode);
 uint32_t getMtu(uint32_t destAddr);

@@ -1,3 +1,4 @@
+#include "driver.h"
 #include "state.h"
 #include "ipPacket.h"
 #include "tcpPacket.h"
@@ -22,9 +23,6 @@
 
 using namespace std;
 
-//range from dynPortStart to dynPortEnd
-unordered_map<uint16_t,bool> usedPorts;
-
 State::State(){}
 State::~State(){}
 
@@ -48,6 +46,8 @@ uint32_t ReceiveEv::getAmount(){ return amount; }
 std::vector<uint8_t>& ReceiveEv::getBuffer(){ return providedBuffer; }
 CloseEv::CloseEv(uint32_t id): Event(id){}
 AbortEv::AbortEv(uint32_t id): Event(id){}
+
+Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive){}
 
 LocalCode Tcb::processEventEntry(int socket, OpenEv& oe){ return currentState->processEvent(socket, *this, oe); }
 LocalCode Tcb::processEventEntry(int socket, SegmentEv& se, RemoteCode& remCode){ return currentState->processEvent(socket, *this, se, remCode); }
@@ -75,73 +75,6 @@ void Tcb::resetSwsTimer(){
   swsTimerExpire = std::chrono::steady_clock::now() + swsTimerInterval;
 }
 
-std::size_t ConnHash::operator()(const ConnPair& p) const {
-  
-  return std::hash<uint32_t>{}(p.first.first) ^
-  (std::hash<uint16_t>{}(p.first.second) << 1) ^
-  (std::hash<uint32_t>{}(p.second.first) << 2) ^
-  (std::hash<uint16_t>{}(p.second.second) << 3);
-}
-
-uint32_t bestLocalAddr=1;
-
-Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive){}
-
-/*pickDynPort 
-picks an unused port from the dynamic range
-if for some reason it cant find one, returns 0(unspecified)
-the user should check for unspecified as an error
-*/
-uint16_t pickDynPort(){
-  
-  for(uint16_t p = DYN_PORT_START; p <= DYN_PORT_END; p++){
-    if(usedPorts.find(p) == usedPorts.end()){
-      usedPorts[p] = true;
-      return p;
-    }
-  }
-  return UNSPECIFIED;
-
-}
-
-/*pickId
-picks an available id to map a connection to. 
-returns bool specifying whether it worked or not
-*/
-bool pickId(int& id){
-  for(int i = 0; i <= INT_MAX; i++){
-    if(idMap.find(i) == idMap.end()){
-      id = i;
-      return true;
-    }
-  }
-  return false;
-}
-
-/*
-reclaimId
-reclaims id so that it can be used with new connections
-assumes the id is a valid one that is in use
-*/
-void reclaimId(int id){
-  idMap.erase(id);
-}
-
-/*pickDynAddr
-ideally will pick best address based on routing tables.
-for right now this just returns a default address
-*/
-uint32_t pickDynAddr(){
-
-  return bestLocalAddr;
-}
-
-void removeConn(Tcb& b){
-
-  reclaimId(b.getId());
-  connections.erase(b.getConnPair());
-}
-
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
   OPENSSL_free(outdigest);
@@ -151,6 +84,152 @@ void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest
   if(res < 0){
     ERR_print_errors_fp(stderr);
   }
+}
+
+//effective send mss: how much tcp data are we actually allowed to send to the peer.
+uint32_t Tcb::getEffectiveSendMss(vector<TcpOption> optionList){
+
+  uint32_t optionListByteCount = 0;
+  for(auto i = optionList.begin(); i < optionList.end(); i++){
+    TcpOption o = *i;
+    optionListByteCount++; //kind byte
+    if(o.getHasLength()){
+      optionListByteCount++;
+    }
+    optionListByteCount += o.getData().size();
+    
+  }
+  uint32_t messageSize = peerMss + TCP_MIN_HEADER_LEN;
+  uint32_t mmsS = getMmsS();
+  if(mmsS < messageSize) messageSize = mmsS;
+  
+  return messageSize - optionListByteCount - TCP_MIN_HEADER_LEN; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
+}
+
+LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_t numBytes){
+
+  bool piggybackFin = false;
+  if(!closeQueue.empty() && (sendQueueByteCount == numBytes) && (usableWindow > numBytes)) piggybackFin = true;
+
+  TcpPacket sendPacket;
+  while(numBytes > 0){
+  
+      SendEv& ev = sendQueue.front();
+    
+      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
+      if(ev.isUrgent() && (!sendPacket.getFlag(TcpPacketFlags::URG) && (sendPacket.getPayload().size() > 0))){
+          bool ls = sendDataPacket(socket,sendPacket);
+          if(!ls){
+              return LocalCode::SOCKET;
+          }
+          sendPacket = TcpPacket{};
+          sendPacket.setSeq(sNxt);
+      }
+     
+     uint32_t upperBound = min({static_cast<uint32_t>(ev.getData().size()), numBytes});
+     for(uint32_t i = 0; i < upperBound; i++){
+        sendPacket.getPayload().push_back(ev.getData()[i]);
+        ev.getData().pop_front();
+        sNxt++;
+        sendQueueByteCount--;
+        numBytes--;
+     }
+     
+     if(ev.isUrgent()){
+        sendPacket.setFlag(TcpPacketFlags::URG);
+        sendPacket.setUrgentPointer(sNxt - sendPacket.getSeqNum() -1);
+     }
+     
+     if(ev.getData().size() < 1){
+        sendQueue.pop_front();
+        if(ev.isPush()){
+          sendPacket.setFlag(TcpPacketFlags::PSH);
+        }
+     }
+    
+     if(numBytes == 0){
+        if(piggybackFin){
+          sendPacket.setFlag(TcpPacketFlags::FIN);
+          sNxt++;
+        }
+        bool ls = sendDataPacket(socket,sendPacket); 
+        if(!ls){
+          return LocalCode::SOCKET;
+        }  
+        return LocalCode::SUCCESS;
+     }
+      
+  }
+  
+  return LocalCode::SUCCESS;
+
+}
+
+bool Tcb::scanForPush(uint32_t usableWindow, int& bytes){
+    
+    int bytesCovered;
+    for(auto iter = sendQueue.begin(); iter < sendQueue.end(); iter++){
+      SendEv& ev = *iter;
+      bytesCovered+= ev.getData().size();
+      if(bytesCovered > usableWindow){
+        return false;
+      }
+      if(ev.isPush()){
+        bytes = bytesCovered;
+        return true;
+      }
+      
+    }
+    return false;
+}
+
+LocalCode Tcb::trySend(int socket){
+
+  while(true){
+  
+    uint32_t effSendMss = getEffectiveSendMss(vector<TcpOption>{});
+    uint32_t usableWindow = sUna + sWnd - sNxt; 
+    uint32_t minDu = usableWindow;
+    if(sendQueueByteCount < minDu) minDu = sendQueueByteCount;
+    if(minDu < 1){
+      break;
+    }
+    bool nagleCheck = (((sNxt == sUna) && nagle) || !nagle);
+    int endPush = 0;
+  
+    if(minDu >= effSendMss){
+      LocalCode lc = packageAndSendSegments(socket, usableWindow, effSendMss);
+      stopSwsTimer();
+      if(lc != LocalCode::SUCCESS) return lc;
+    }
+    else if(nagleCheck && scanForPush(usableWindow,endPush)){
+      LocalCode lc = packageAndSendSegments(socket, usableWindow, endPush);
+      stopSwsTimer();
+      if(lc != LocalCode::SUCCESS) return lc;
+    }
+    else if(nagleCheck && (minDu >= (static_cast<uint32_t>(MAX_WINDOW_FRACT * maxSWnd)))){
+      LocalCode lc = packageAndSendSegments(socket, usableWindow, minDu);
+      stopSwsTimer();
+      if(lc != LocalCode::SUCCESS) return lc;
+    }
+    else if(swsTimerExpired()){
+      LocalCode lc = packageAndSendSegments(socket, usableWindow, minDu);
+      stopSwsTimer();
+      if(lc != LocalCode::SUCCESS) return lc;
+    }
+    else{
+      //only want to set the timer if its stopped, its possible the timer is already set from a previous failure to send
+      if(swsTimerStopped()){
+        resetSwsTimer();
+      }
+      break;
+      
+    }
+    
+  }
+  
+  return LocalCode::SUCCESS;
+  
 }
 
 bool Tcb::pickRealIsn(){
@@ -307,7 +386,7 @@ bool Tcb::sendReset(int socket, LocalPair lp, RemotePair rp, uint32_t ackNum, bo
   if(ackFlag){
     sPacket.setFlag(TcpPacketFlags::ACK);
   }
-  sPacket.setFlag(TcpPacketFlags::RST).setSrcPort(lp.second).setDestPort(rp.second).setSeq(seqNum).setAck(ackNum).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
+  sPacket.setFlag(TcpPacketFlags::RST).setSrcPort(lp.second).setDestPort(rp.second).setSeq(seqNum).setAck(ackNum).setOptions(options).setPayload(data).setRealChecksum(lp.first, rp.first);
       
   return sendPacket(socket, rp.first, sPacket);
   

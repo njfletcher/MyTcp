@@ -10,29 +10,14 @@
 
 const uint16_t UNSPECIFIED = 0;
 const int KEY_LEN = 16; //128 bits = 16 bytes recommended by RFC 6528
-const uint16_t DYN_PORT_START = 49152;
-const uint16_t DYN_PORT_END = 65535;
 const int ARRANGED_SEGMENTS_BYTES_MAX = 500;
 const int REC_QUEUE_MAX = 500;
 const int SEND_QUEUE_BYTE_MAX = 500;
 const uint16_t DEFAULT_MSS = 536; // maximum segment size
+const float MAX_WINDOW_FRACT = 0.5;
 
 class Tcb;
 class State;
-
-typedef std::pair<uint32_t, uint16_t> LocalPair;
-typedef std::pair<uint32_t, uint16_t> RemotePair;
-typedef std::pair<LocalPair, RemotePair> ConnPair;
-
-struct ConnHash{
-  std::size_t operator()(const ConnPair& p) const;
-};
-
-typedef std::unordered_map<ConnPair, Tcb, ConnHash > ConnectionMap;
-
-std::unordered_map<int, ConnPair> idMap;
-ConnectionMap connections;
-
 
 //Codes that are specified by Tcp rfcs.
 //These are the codes communicated to the simulated apps, and they do not actually affect the flow of the fuzzer
@@ -61,6 +46,8 @@ enum class RemoteCode{
   UNEXPECTEDPACKET = -2
 
 };
+
+#include "driver.h"
 
 class Event{
   public:
@@ -266,7 +253,7 @@ class Tcb{
     friend class TimeWaitS;
     
     static Tcb buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev);
-    
+    static bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
     
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb() = default;
@@ -281,16 +268,20 @@ class Tcb{
     LocalCode processEventEntry(int socket, CloseEv& ce);
     LocalCode processEventEntry(int socket, AbortEv& ae); 
     
-    
+    LocalCode trySend(int socket);
     
     void notifyApp(TcpCode c, uint32_t eId);
+    
+  private:
+  
+    uint32_t getEffectiveSendMss(std::vector<TcpOption> optionList);
+    LocalCode packageAndSendSegments(int socket, uint32_t usableWindow, uint32_t numBytes);
+    bool scanForPush(uint32_t usableWindow, int& bytes);
     
     bool swsTimerExpired();
     bool swsTimerStopped();
     void stopSwsTimer();
     void resetSwsTimer();
-    
-  private:
   
     void setCurrentState(std::unique_ptr<State> s);
   
@@ -308,7 +299,6 @@ class Tcb{
     LocalCode processData(int socket, TcpPacket& tcpP);
     LocalCode checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e);
     
-    bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
     bool sendDataPacket(int socket, TcpPacket& p);
     bool sendCurrentAck(int socket);
     bool sendFin(int socket);
@@ -319,7 +309,7 @@ class Tcb{
     
     LocalCode processRead(ReceiveEv& e);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
-
+    
     int id = 0;
     App* parentApp;
     

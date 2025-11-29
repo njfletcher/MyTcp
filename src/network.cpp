@@ -29,7 +29,10 @@ uint32_t getMmsS(){
 
 }
 
-bool bindSocket(uint32_t sourceAddr, int& sRet){
+bool bindSocket(char* sourceAddress, int& sRet){
+
+  uint32_t sourceAddr = toAltOrder<uint32_t>(inet_addr(sourceAddress));
+  
   struct sockaddr_in serv;
   serv.sin_family = AF_INET;
   serv.sin_addr.s_addr = toAltOrder<uint32_t>(sourceAddr);
