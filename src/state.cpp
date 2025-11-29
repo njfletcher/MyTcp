@@ -112,23 +112,22 @@ LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_
   if(!closeQueue.empty() && (sendQueueByteCount == numBytes) && (usableWindow > numBytes)) piggybackFin = true;
 
   TcpPacket sendPacket;
-  while(numBytes > 0){
+  while(true){
   
-      SendEv& ev = sendQueue.front();
-    
-      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
-      if(ev.isUrgent() && (!sendPacket.getFlag(TcpPacketFlags::URG) && (sendPacket.getPayload().size() > 0))){
+     SendEv& ev = sendQueue.front();
+      
+     //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
+     if(ev.isUrgent() && (!sendPacket.getFlag(TcpPacketFlags::URG) && (sendPacket.getPayload().size() > 0))){
           bool ls = sendDataPacket(socket,sendPacket);
           if(!ls){
               return LocalCode::SOCKET;
           }
           sendPacket = TcpPacket{};
           sendPacket.setSeq(sNxt);
-      }
+     }
      
-     uint32_t upperBound = min({static_cast<uint32_t>(ev.getData().size()), numBytes});
-     for(uint32_t i = 0; i < upperBound; i++){
-        sendPacket.getPayload().push_back(ev.getData()[i]);
+     while((ev.getData().size() > 0) && (numBytes > 0)){
+        sendPacket.getPayload().push_back(ev.getData().front());
         ev.getData().pop_front();
         sNxt++;
         sendQueueByteCount--;
@@ -140,7 +139,7 @@ LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_
         sendPacket.setUrgentPointer(sNxt - sendPacket.getSeqNum() -1);
      }
      
-     if(ev.getData().size() < 1){
+     if(ev.getData().size() == 0){
         sendQueue.pop_front();
         if(ev.isPush()){
           sendPacket.setFlag(TcpPacketFlags::PSH);
@@ -317,16 +316,10 @@ bool Tcb::pickRealIsn(){
   return true;
 }
 
-
 //simulates passing a passing an info/error message to a connection that belongs to a hooked up application.
 void Tcb::notifyApp(TcpCode c, uint32_t eId){
   parentApp->getConnNotifs()[id].push_back(c);
 }
-//simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
-void notifyApp(App* app, TcpCode c, uint32_t eId){
-  app->getAppNotifs().push_back(c);
-}
-
 
 //TODO: research tcp security/compartment and how this check should work
 bool Tcb::checkSecurity(IpPacket& p){
@@ -1505,13 +1498,15 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
     return LocalCode::SUCCESS;
 }
 
-LocalCode Tcb::processRead(ReceiveEv& e){
+LocalCode Tcb::processRead(ReceiveEv& e, bool ending){
 
     uint32_t readBytes = 0;
-    if(arrangedSegmentsByteCount >= e.getAmount()){
-      while(readBytes < e.getAmount() && !arrangedSegments.empty()){
+    if((arrangedSegmentsByteCount >= e.getAmount()) || ending){
+    
+      bool evaluateMoreSegments = true;  
+      while(evaluateMoreSegments && !arrangedSegments.empty()){
         TcpSegmentSlice& slice = arrangedSegments.front();
-        while(readBytes < e.getAmount()){
+        while((slice.getData().size() > 0) && (readBytes < e.getAmount())){
           e.getBuffer().push_back(slice.getData().front());
           slice.getData().pop();
           readBytes++;
@@ -1526,6 +1521,9 @@ LocalCode Tcb::processRead(ReceiveEv& e){
           }
         }
         
+        if(readBytes == e.getAmount()){
+          evaluateMoreSegments = false;
+        }
         
       }
       
@@ -1537,8 +1535,8 @@ LocalCode Tcb::processRead(ReceiveEv& e){
       }
       else{
         urgentSignaled = false;
-      
       }
+      
     }
     else{
       addToRecQueue(e);
@@ -1548,67 +1546,27 @@ LocalCode Tcb::processRead(ReceiveEv& e){
 }
 
 LocalCode EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e);
+  return b.processRead(e,false);
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e);
+  return b.processRead(e,false);
 }
 
 
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e);
+  return b.processRead(e,false);
 }
 
-/* look into if this specified logic is really needed instead of combining with processRead logic */
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 
     if(b.arrangedSegmentsByteCount == 0){
       b.notifyApp(TcpCode::CONNCLOSING, e.getId());
       return LocalCode::SUCCESS;
-    
     }
 
-    uint32_t readBytes = 0;
-    uint32_t upperBound = b.arrangedSegmentsByteCount;
-    if(upperBound > e.getAmount()){
-      upperBound = e.getAmount();
-    }
-    while(readBytes < upperBound && !b.arrangedSegments.empty()){
-      TcpSegmentSlice& slice = b.arrangedSegments.front();
-      while(readBytes < upperBound){
-        e.getBuffer().push_back(slice.getData().front());
-        slice.getData().pop();
-        readBytes++;
-        b.arrangedSegmentsByteCount--;
-        b.appNewData++;
-      }
-        
-      if(slice.getData().size() == 0){
-        b.arrangedSegments.pop_front();
-        if(slice.isPush()){
-          b.pushSeen = true;
-        }
-      }
-        
-        
-    }
-      
-    if(b.rUp > b.appNewData){
-      if(!b.urgentSignaled){
-        b.notifyApp(TcpCode::URGENTDATA, e.getId());
-        b.urgentSignaled = true;
-      }
-    }
-    else{
-      b.urgentSignaled = false;
-    }
-  
-    
-    return LocalCode::SUCCESS;
-
+    return b.processRead(e, true);
 }
-
 
 LocalCode ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
   b.notifyApp(TcpCode::CONNCLOSING, e.getId());
@@ -1770,8 +1728,6 @@ LocalCode Tcb::normalAbortLogic(int socket, AbortEv& e){
 
 }
 
-
-
 LocalCode SynRecS::processEvent(int socket, Tcb& b, AbortEv& e){
   return b.normalAbortLogic(socket,e);
 }
@@ -1806,66 +1762,6 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
   b.notifyApp(TcpCode::OK, e.getId());
   return LocalCode::SUCCESS;
 }
-
-
-LocalCode send(App* app, int socket, bool urgent, deque<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
-
-  SendEv ev(data,urgent,push,0);
-  ConnPair p(lP,rP);
-  
-  if(connections.find(p) != connections.end()){
-    Tcb& oldConn = connections[p];
-    return oldConn.processEventEntry(socket, ev); 
-  }  
-  
-  notifyApp(app,TcpCode::NOCONNEXISTS, ev.getId());
-  return LocalCode::SUCCESS;
-
-}
-
-LocalCode receive(App* app, int socket, uint32_t amount, std::vector<uint8_t>& buff, LocalPair lP, RemotePair rP){
-
-  ReceiveEv ev(amount, buff, 0);
- 
-  ConnPair p(lP, rP);
-  if(connections.find(p) != connections.end()){
-      Tcb& oldConn = connections[p];
-      return oldConn.processEventEntry(socket, ev); 
-  }  
-  
-  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
-  return LocalCode::SUCCESS;
-
-}
-
-LocalCode close(App* app, int socket, LocalPair lP, RemotePair rP){
-
-  CloseEv ev(0);
-  
-  ConnPair p(lP, rP);
-  if(connections.find(p) != connections.end()){
-      Tcb& oldConn = connections[p];
-      return oldConn.processEventEntry(socket, ev); 
-  }  
-  
-  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
-  return LocalCode::SUCCESS;
-}
-
-LocalCode abort(App* app, int socket, LocalPair lP, RemotePair rP){
-
-  AbortEv ev(0);
-  
-  ConnPair p(lP,rP);
-  if(connections.find(p) != connections.end()){
-      Tcb& oldConn = connections[p];
-      return oldConn.processEventEntry(socket, ev); 
-  }  
-  
-  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
-  return LocalCode::SUCCESS;
-}
-
 
 Tcb Tcb::buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev){
 
@@ -1933,29 +1829,5 @@ Tcb Tcb::buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, Rem
   createdId = id;
   success = true;
   return newConn;
-}
-
-/*
-open-
-Models an open event call from an app to a kernel.
-AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
-createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
-*/
-LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
-
-  OpenEv ev(passive,0);
-  
-  ConnPair p(lP,rP);
-  if(connections.find(p) != connections.end()){
-    //duplicate connection
-    Tcb& oldConn = connections[p];
-    return oldConn.processEventEntry(socket, ev);   
-  }
-  
-  bool success = false;
-  Tcb b = Tcb::buildTcbFromOpen(success, app, socket, lP, rP, createdId, ev);
-  if(success) connections[p] = move(b);
-  return LocalCode::SUCCESS;
-  
 }
 

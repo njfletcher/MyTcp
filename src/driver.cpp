@@ -81,6 +81,11 @@ void removeConn(Tcb& b){
   connections.erase(b.getConnPair());
 }
 
+//simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
+void notifyApp(App* app, TcpCode c, uint32_t eId){
+  app->getAppNotifs().push_back(c);
+}
+
 /*
 multiplexIncoming-
 Upon notification of incoming packet on interface, this method
@@ -200,6 +205,90 @@ LocalCode tryConnectionSends(int socket){
     if(c != LocalCode::SUCCESS) return c;
   }
   return LocalCode::SUCCESS;
+}
+
+
+
+LocalCode send(App* app, int socket, bool urgent, deque<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
+
+  SendEv ev(data,urgent,push,0);
+  ConnPair p(lP,rP);
+  
+  if(connections.find(p) != connections.end()){
+    Tcb& oldConn = connections[p];
+    return oldConn.processEventEntry(socket, ev); 
+  }  
+  
+  notifyApp(app,TcpCode::NOCONNEXISTS, ev.getId());
+  return LocalCode::SUCCESS;
+
+}
+
+LocalCode receive(App* app, int socket, uint32_t amount, std::vector<uint8_t>& buff, LocalPair lP, RemotePair rP){
+
+  ReceiveEv ev(amount, buff, 0);
+ 
+  ConnPair p(lP, rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.processEventEntry(socket, ev); 
+  }  
+  
+  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
+  return LocalCode::SUCCESS;
+
+}
+
+LocalCode close(App* app, int socket, LocalPair lP, RemotePair rP){
+
+  CloseEv ev(0);
+  
+  ConnPair p(lP, rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.processEventEntry(socket, ev); 
+  }  
+  
+  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
+  return LocalCode::SUCCESS;
+}
+
+LocalCode abort(App* app, int socket, LocalPair lP, RemotePair rP){
+
+  AbortEv ev(0);
+  
+  ConnPair p(lP,rP);
+  if(connections.find(p) != connections.end()){
+      Tcb& oldConn = connections[p];
+      return oldConn.processEventEntry(socket, ev); 
+  }  
+  
+  notifyApp(app, TcpCode::NOCONNEXISTS, ev.getId());
+  return LocalCode::SUCCESS;
+}
+
+/*
+open-
+Models an open event call from an app to a kernel.
+AppId is an id that the simulated app registers with the kernel, createdId is populated with the id of the connection.
+createdId should only be used if LocalCode::Success is returned and there are no app notifications indicating the connection failed
+*/
+LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, int& createdId){
+
+  OpenEv ev(passive,0);
+  
+  ConnPair p(lP,rP);
+  if(connections.find(p) != connections.end()){
+    //duplicate connection
+    Tcb& oldConn = connections[p];
+    return oldConn.processEventEntry(socket, ev);   
+  }
+  
+  bool success = false;
+  Tcb b = Tcb::buildTcbFromOpen(success, app, socket, lP, rP, createdId, ev);
+  if(success) connections[p] = move(b);
+  return LocalCode::SUCCESS;
+  
 }
 
 /*
