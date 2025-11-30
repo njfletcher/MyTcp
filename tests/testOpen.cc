@@ -1,19 +1,19 @@
 #include <gtest/gtest.h>
 #include "../src/state.h"
+#include "TestTcbAccessor.h"
 #include <iostream>
 
 using namespace std;
 
 namespace openTests{
 
-#define testAppId 0
-#define testSocket 0
-#define testConnId 1
-
-const unsigned int testLocIp = 1;
-const unsigned int testLocPort = 1;
-const unsigned int testRemIp = 1;
-const unsigned int testRemPort = 1;
+const int TEST_APP_ID = 0;
+const int TEST_SOCKET = 0;
+const int TEST_CONN_ID = 1;
+const unsigned int TEST_LOC_IP = 1;
+const unsigned int TEST_LOC_PORT = 1;
+const unsigned int TEST_REM_IP = 1;
+const unsigned int TEST_REM_PORT = 1;
 
 class OpenTestFixture : public testing::Test{
 
@@ -26,20 +26,20 @@ class OpenTestFixture : public testing::Test{
 template<typename T>
 void testSimpleNotif(){
 
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
-    App a;
+    App a(TEST_APP_ID, {}, {});
     Tcb b(&a, lp, rp, true);
-    b.id = testConnId;
-    b.currentState = make_shared<T>();
+    b.id = TEST_CONN_ID;
+    b.setCurrentState(make_unique<T>());
     ConnPair cPair(lp,rp);
     connections[cPair] = b;
     
     int createdId = 0;
-    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
   
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     EXPECT_TRUE(a.appNotifs.size() < 1);
     ASSERT_NE(connections.find(cPair) , connections.end());
@@ -48,34 +48,34 @@ void testSimpleNotif(){
     EXPECT_TRUE(dynamic_cast<T*>(&testS));
     
     ASSERT_TRUE(
-      (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
-      && (a.connNotifs[testConnId].size() == 1) 
-      && (a.connNotifs[testConnId][0] == TcpCode::DupConn)
+      (a.connNotifs.find(TEST_CONN_ID) != a.connNotifs.end()) 
+      && (a.getConnNotifs()[TEST_CONN_ID].size() == 1) 
+      && (a.getConnNotifs()[TEST_CONN_ID][0] == TcpCode::DUPCONN)
     );
 
 }
 
 TEST_F(OpenTestFixture, OpenCompleteActive){
 
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     int createdId = 0;
-    App a;
-    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+    App a(TEST_APP_ID, {}, {});
+    LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
   
     ConnPair cPair(lp,rp);
     
     ASSERT_NE(connections.find(cPair) , connections.end());
     EXPECT_TRUE(idMap.size() > 0);
     
-    EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(a.getAppNotifs().size() < 1);
+    EXPECT_TRUE(a.getConnNotifs().size() < 1);
     
     Tcb& b = connections[cPair];
     
-    State& testS = *b.currentState;
+    State& testS = TestTcbAccessor::currentState(b);
     
     EXPECT_TRUE((b.sUna == b.iss) && (b.sNxt == (b.iss + 1)));
     ASSERT_TRUE(dynamic_cast<SynSentS*>(&testS));
@@ -84,11 +84,11 @@ TEST_F(OpenTestFixture, OpenCompleteActive){
 
 TEST_F(OpenTestFixture, OpenCompletePassive){
 
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     int createdId = 0;
     App a;
-    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
   
@@ -113,11 +113,11 @@ TEST_F(OpenTestFixture, OpenCompletePassive){
 
 TEST_F(OpenTestFixture, OpenRemUnspecPassive){
 
-    LocalPair lp(testLocIp,testLocPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
     RemotePair rp(Unspecified, Unspecified);
     int createdId = 0;
     App a;
-    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
     
@@ -129,11 +129,11 @@ TEST_F(OpenTestFixture, OpenRemUnspecPassive){
 
 TEST_F(OpenTestFixture, OpenRemUnspecActive){
 
-    LocalPair lp(testLocIp,testLocPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
     RemotePair rp(Unspecified, Unspecified);
     int createdId = 0;
     App a;
-    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
     
@@ -149,10 +149,10 @@ TEST_F(OpenTestFixture, OpenRemUnspecActive){
 TEST_F(OpenTestFixture, OpenLocUnspec){
 
     LocalPair lp(Unspecified,Unspecified);
-    RemotePair rp(testRemIp, testRemPort);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     int createdId = 0;
     App a;
-    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
       
@@ -169,8 +169,8 @@ TEST_F(OpenTestFixture, OpenLocUnspec){
 
 TEST_F(OpenTestFixture, OpenFromListenPassive){
 
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
     App a;
     Tcb b(&a, lp, rp, true);
@@ -180,7 +180,7 @@ TEST_F(OpenTestFixture, OpenFromListenPassive){
     connections[cPair] = b;
     
     int createdId = 0;
-    LocalCode lc = open(&a, testSocket, true, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
     
@@ -200,8 +200,8 @@ TEST_F(OpenTestFixture, OpenFromListenPassive){
 
 TEST_F(OpenTestFixture, OpenFromListenActive){
 
-    LocalPair lp(testLocIp,testLocPort);
-    RemotePair rp(testRemIp, testRemPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
     App a;
     Tcb b(&a, lp, rp, true);
@@ -211,7 +211,7 @@ TEST_F(OpenTestFixture, OpenFromListenActive){
     connections[cPair] = b;
     
     int createdId = 0;
-    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
     
@@ -226,7 +226,7 @@ TEST_F(OpenTestFixture, OpenFromListenActive){
 
 TEST_F(OpenTestFixture, OpenListenActiveRemUnspec){
     
-    LocalPair lp(testLocIp,testLocPort);
+    LocalPair lp(testLocIp,TEST_LOC_PORT);
     RemotePair rp(Unspecified, Unspecified);
     
     App a;
@@ -237,7 +237,7 @@ TEST_F(OpenTestFixture, OpenListenActiveRemUnspec){
     connections[cPair] = b; 
     
     int createdId = 0;
-    LocalCode lc = open(&a, testSocket, false, lp, rp, createdId);
+    LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
     ASSERT_EQ(lc , LocalCode::Success);
     

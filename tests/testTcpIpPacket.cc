@@ -10,7 +10,7 @@ namespace tcpIpPacketTests{
 
 TEST(StandardTCPIPPacket, GoodPacketNoOptions){
 
-  int buffSize = ipMinHeaderLen + tcpMinHeaderLen;
+  int buffSize = IP_MIN_HEADER_LEN + TCP_MIN_HEADER_LEN;
   uint8_t buffer[buffSize] = { 0x45, 
                                       0b10101011, 
                                    0x00, 0x28, 
@@ -36,16 +36,16 @@ TEST(StandardTCPIPPacket, GoodPacketNoOptions){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  ASSERT_EQ(c  ,  IpPacketCode::Success);
+  ASSERT_EQ(c  ,  IpPacketCode::SUCCESS);
   EXPECT_EQ(p.getVersion()  ,  0x4);
   EXPECT_EQ(p.getIHL()  ,  0x5);
   EXPECT_EQ(p.getDscp()  ,  0b00101010);
   EXPECT_EQ(p.getEcn()  ,  0b00000011);
   EXPECT_EQ(p.getTotalLength()  ,  0x0028);
   EXPECT_EQ(p.getIdent()  ,  0x4321);
-  EXPECT_FALSE(p.getFlag(IpPacketFlags::reserved));
-  EXPECT_TRUE(p.getFlag(IpPacketFlags::dontFrag));
-  EXPECT_TRUE(p.getFlag(IpPacketFlags::moreFrag));
+  EXPECT_FALSE(p.getFlag(IpPacketFlags::RESERVED));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::DONTFRAG));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::MOREFRAG));
   EXPECT_EQ(p.getFragOffset()  ,  0b0001110110101010);
   EXPECT_EQ(p.getTtl()  ,  0x12);
   EXPECT_EQ(p.getProto()  ,  0x34);
@@ -53,21 +53,21 @@ TEST(StandardTCPIPPacket, GoodPacketNoOptions){
   EXPECT_EQ(p.getSrcAddr()  ,  0x12345678);
   EXPECT_EQ(p.getDestAddr()  ,  0x87654321);
   
-  TcpPacket& tP = p.tcpPacket;
+  TcpPacket& tP = p.getTcpPacket();
   EXPECT_EQ(tP.getSrcPort(), 0x1234);
   EXPECT_EQ(tP.getDestPort(), 0x5678);
   EXPECT_EQ(tP.getSeqNum(), 0x12345678);
   EXPECT_EQ(tP.getAckNum() , 0x87654321);
   EXPECT_EQ(tP.getDataOffset() , 0x5);
   EXPECT_EQ(tP.getReserved() , 0x0);
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::cwr));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ece));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::urg));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ack));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::psh));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::rst));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::syn));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::fin));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::CWR));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ECE));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::URG));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ACK));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::PSH));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::RST));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::SYN));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::FIN));
   EXPECT_EQ(tP.getWindow() , 0x1425);
   EXPECT_EQ(tP.getChecksum() , 0x3647);
   EXPECT_EQ(tP.getUrg() , 0x1122);
@@ -86,7 +86,7 @@ TEST(StandardTCPIPPacket, GoodPacketNoOptions){
 
 TEST(StandardTCPIPPacket, GoodPacketDefinedOptions){
 
-  int buffSize = ipMinHeaderLen + 8 + tcpMinHeaderLen + 8;
+  int buffSize = IP_MIN_HEADER_LEN + 8 + TCP_MIN_HEADER_LEN + 8;
   uint8_t buffer[buffSize] = { 0x47, 
                                       0b10101011, 
                                    0x00, 0x38, 
@@ -120,16 +120,16 @@ TEST(StandardTCPIPPacket, GoodPacketDefinedOptions){
       
   IpPacket p;
   IpPacketCode c = p.fromBuffer(buffer, buffSize);
-  ASSERT_EQ(c  ,  IpPacketCode::Success);
+  ASSERT_EQ(c  ,  IpPacketCode::SUCCESS);
   EXPECT_EQ(p.getVersion()  ,  0x4);
   EXPECT_EQ(p.getIHL()  ,  0x7);
   EXPECT_EQ(p.getDscp()  ,  0b00101010);
   EXPECT_EQ(p.getEcn()  ,  0b00000011);
   EXPECT_EQ(p.getTotalLength()  ,  0x0038);
   EXPECT_EQ(p.getIdent()  ,  0x4321);
-  EXPECT_FALSE(p.getFlag(IpPacketFlags::reserved));
-  EXPECT_TRUE(p.getFlag(IpPacketFlags::dontFrag));
-  EXPECT_TRUE(p.getFlag(IpPacketFlags::moreFrag));
+  EXPECT_FALSE(p.getFlag(IpPacketFlags::RESERVED));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::DONTFRAG));
+  EXPECT_TRUE(p.getFlag(IpPacketFlags::MOREFRAG));
   EXPECT_EQ(p.getFragOffset()  ,  0b0001110110101010);
   EXPECT_EQ(p.getTtl()  ,  0x12);
   EXPECT_EQ(p.getProto()  ,  0x34);
@@ -137,81 +137,83 @@ TEST(StandardTCPIPPacket, GoodPacketDefinedOptions){
   EXPECT_EQ(p.getSrcAddr()  ,  0x12345678);
   EXPECT_EQ(p.getDestAddr()  ,  0x87654321);
   
-  ASSERT_EQ(p.optionList.size()  ,  3);
-  IpOption& firstOpt = p.optionList[0];
+  vector<IpOption>& ipOptionsList = p.getOptions();
+  ASSERT_EQ(ipOptionsList.size()  ,  3);
+  IpOption& firstOpt = ipOptionsList[0];
   EXPECT_TRUE(
-    (firstOpt.type  ==  static_cast<uint8_t>(IpOptionType::ts)) 
-    && (firstOpt.length  ==  6) 
-    && (firstOpt.data.size()  ==  4) 
-    && (firstOpt.data[0] == 0x10) 
-    && (firstOpt.data[1]  ==  0x20) 
-    && (firstOpt.data[2]  ==  0x30) 
-    && (firstOpt.data[3] ==  0x40)
+    (firstOpt.getType()  ==  static_cast<uint8_t>(IpOptionType::TS)) 
+    && (firstOpt.getLength()  ==  6) 
+    && (firstOpt.getData().size()  ==  4) 
+    && (firstOpt.getData()[0] == 0x10) 
+    && (firstOpt.getData()[1]  ==  0x20) 
+    && (firstOpt.getData()[2]  ==  0x30) 
+    && (firstOpt.getData()[3] ==  0x40)
   );
-  IpOption& secOpt = p.optionList[1];
+  IpOption& secOpt = ipOptionsList[1];
   EXPECT_TRUE(
-    (secOpt.type  ==  static_cast<uint8_t>(IpOptionType::nop)) 
-    && (!secOpt.hasLength) 
-    && (secOpt.data.size()  == 0)
+    (secOpt.getType()  ==  static_cast<uint8_t>(IpOptionType::NOOP)) 
+    && (!secOpt.getHasLength()) 
+    && (secOpt.getData().size()  == 0)
   );
-  IpOption& thirdOpt = p.optionList[2];
+  IpOption& thirdOpt = ipOptionsList[2];
   EXPECT_TRUE(
-    (thirdOpt.type  ==  static_cast<uint8_t>(IpOptionType::eool)) 
-    && (!thirdOpt.hasLength) 
-    && (thirdOpt.data.size()  ==  0)
+    (thirdOpt.getType()  ==  static_cast<uint8_t>(IpOptionType::EOOL)) 
+    && (!thirdOpt.getHasLength()) 
+    && (thirdOpt.getData().size()  ==  0)
   );
   
-  TcpPacket& tP = p.tcpPacket;
+  TcpPacket& tP = p.getTcpPacket();
   EXPECT_EQ(tP.getSrcPort(), 0x1234);
   EXPECT_EQ(tP.getDestPort(), 0x5678);
   EXPECT_EQ(tP.getSeqNum(), 0x12345678);
   EXPECT_EQ(tP.getAckNum() , 0x87654321);
   EXPECT_EQ(tP.getDataOffset() , 0x7);
   EXPECT_EQ(tP.getReserved() , 0x0);
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::cwr));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ece));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::urg));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ack));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::psh));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::rst));
-  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::syn));
-  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::fin));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::CWR));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ECE));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::URG));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::ACK));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::PSH));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::RST));
+  EXPECT_TRUE(tP.getFlag(TcpPacketFlags::SYN));
+  EXPECT_FALSE(tP.getFlag(TcpPacketFlags::FIN));
   EXPECT_EQ(tP.getWindow() , 0x1425);
   EXPECT_EQ(tP.getChecksum() , 0x3647);
   EXPECT_EQ(tP.getUrg() , 0x1122);
   
-  ASSERT_EQ(tP.optionList.size()  ,  5);
-  TcpOption& fourthOpt = tP.optionList[0];
+  vector<TcpOption>& tcpOptionsList = tP.getOptions();
+  ASSERT_EQ(tcpOptionsList.size()  ,  5);
+  TcpOption& fourthOpt = tcpOptionsList[0];
   EXPECT_TRUE(
-    (fourthOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::mss)) 
-    && (fourthOpt.length  ==  4) 
-    && (fourthOpt.data.size()  ==  2) 
-    && (fourthOpt.data[0] == 0x10) 
-    && (fourthOpt.data[1]  ==  0x01)
+    (fourthOpt.getKind()  ==  static_cast<uint8_t>(TcpOptionKind::MSS)) 
+    && (fourthOpt.getLength()  ==  4) 
+    && (fourthOpt.getData().size()  ==  2) 
+    && (fourthOpt.getData()[0] == 0x10) 
+    && (fourthOpt.getData()[1]  ==  0x01)
   );
-  TcpOption& fifthOpt = tP.optionList[1];
+  TcpOption& fifthOpt = tcpOptionsList[1];
   EXPECT_TRUE(
-    (fifthOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::noOp)) 
-    && (!fifthOpt.hasLength) 
-    && (fifthOpt.data.size()  ==  0)
+    (fifthOpt.getKind()  ==  static_cast<uint8_t>(TcpOptionKind::NOOP)) 
+    && (!fifthOpt.getHasLength()) 
+    && (fifthOpt.getData().size()  ==  0)
   );
-  TcpOption& sixthOpt = tP.optionList[2];
+  TcpOption& sixthOpt = tcpOptionsList[2];
   EXPECT_TRUE(
-    (sixthOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::noOp)) 
-    && (!sixthOpt.hasLength) 
-    && (sixthOpt.data.size()  ==  0)
+    (sixthOpt.getKind()  ==  static_cast<uint8_t>(TcpOptionKind::NOOP)) 
+    && (!sixthOpt.getHasLength()) 
+    && (sixthOpt.getData().size()  ==  0)
   );
-  TcpOption& seventhOpt = tP.optionList[3];
+  TcpOption& seventhOpt = tcpOptionsList[3];
   EXPECT_TRUE(
-    (seventhOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::noOp)) 
-    && (!seventhOpt.hasLength) 
-    && (seventhOpt.data.size()  ==  0)
+    (seventhOpt.getKind()  ==  static_cast<uint8_t>(TcpOptionKind::NOOP)) 
+    && (!seventhOpt.getHasLength()) 
+    && (seventhOpt.getData().size()  ==  0)
   );
-  TcpOption& eigthOpt = tP.optionList[4];
+  TcpOption& eigthOpt = tcpOptionsList[4];
   EXPECT_TRUE(
-    (eigthOpt.kind  ==  static_cast<uint8_t>(TcpOptionKind::end)) 
-    && (!eigthOpt.hasLength) 
-    && (eigthOpt.data.size()  ==  0)
+    (eigthOpt.getKind()  ==  static_cast<uint8_t>(TcpOptionKind::END)) 
+    && (!eigthOpt.getHasLength()) 
+    && (eigthOpt.getData().size()  ==  0)
   );
   
   vector<uint8_t> buff;

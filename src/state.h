@@ -1,4 +1,9 @@
 #pragma once
+
+#ifdef TEST_NO_SEND
+  class TestTcbAccessor;
+#endif
+
 #include <cstdint>
 #include "tcpPacket.h"
 #include "ipPacket.h"
@@ -46,8 +51,6 @@ enum class RemoteCode{
   UNEXPECTEDPACKET = -2
 
 };
-
-#include "driver.h"
 
 class Event{
   public:
@@ -117,6 +120,7 @@ class App{
     std::unordered_map<int, std::deque<TcpCode> > connNotifs;
 };
 
+#include "driver.h"
 
 /*
 Using state pattern to handle state transitions and logic. 
@@ -251,6 +255,9 @@ class Tcb{
     friend class ClosingS;
     friend class LastAckS;
     friend class TimeWaitS;
+    #ifdef TEST_NO_SEND
+      friend class TestTcbAccessor;
+    #endif
     
     static Tcb buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev);
     static bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
