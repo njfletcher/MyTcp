@@ -20,6 +20,10 @@ extern ConnectionMap connections;
 const uint16_t DYN_PORT_START = 49152;
 const uint16_t DYN_PORT_END = 65535;
 
+void notifyApp(App* app, int connId, TcpCode c, uint32_t eId);
+LocalCode remConnFlushAll(int socket, Tcb& b, Event& e);
+LocalCode remConnOnly(int socket, Tcb& b);
+
 void reclaimId(int id);
 uint16_t pickDynPort();
 bool pickId(int& id);

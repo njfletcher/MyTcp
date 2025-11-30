@@ -56,7 +56,6 @@ class TcpSegmentSlice{
   public:
     TcpSegmentSlice() = default;
     TcpSegmentSlice(bool p, uint32_t seq, std::queue<uint8_t> data);
-    
     bool isPush();
     uint32_t getSeqNum();
     std::queue<uint8_t>& getData();

@@ -1,9 +1,5 @@
 #pragma once
 
-#ifdef TEST_NO_SEND
-  class TestTcbAccessor;
-#endif
-
 #include <cstdint>
 #include "tcpPacket.h"
 #include "ipPacket.h"
@@ -244,21 +240,6 @@ class TimeWaitS : public State{
 class Tcb{
 
   public:
-    friend class State;
-    friend class ListenS;
-    friend class SynSentS;
-    friend class SynRecS;
-    friend class EstabS;
-    friend class FinWait1S;
-    friend class FinWait2S;
-    friend class CloseWaitS;
-    friend class ClosingS;
-    friend class LastAckS;
-    friend class TimeWaitS;
-    #ifdef TEST_NO_SEND
-      friend class TestTcbAccessor;
-    #endif
-    
     static Tcb buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev);
     static bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
     
@@ -267,6 +248,7 @@ class Tcb{
     
     int getId();
     ConnPair getConnPair();
+    App* getParApp();
     
     LocalCode processEventEntry(int socket, OpenEv& oe);
     LocalCode processEventEntry(int socket, SegmentEv& se, RemoteCode& remCode);
@@ -275,12 +257,12 @@ class Tcb{
     LocalCode processEventEntry(int socket, CloseEv& ce);
     LocalCode processEventEntry(int socket, AbortEv& ae); 
     
+    void initSenderState(bool flipOpenType);
+    void initReceiverState(uint32_t seqNum);
+    void specifyRemotePair(RemotePair recPair);
+    
     LocalCode trySend(int socket);
     
-    void notifyApp(TcpCode c, uint32_t eId);
-    
-  private:
-  
     uint32_t getEffectiveSendMss(std::vector<TcpOption> optionList);
     LocalCode packageAndSendSegments(int socket, uint32_t usableWindow, uint32_t numBytes);
     bool scanForPush(uint32_t usableWindow, int& bytes);
@@ -310,13 +292,33 @@ class Tcb{
     bool sendCurrentAck(int socket);
     bool sendFin(int socket);
     bool sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck);
-    bool pickRealIsn();
+    
     bool addToSendQueue(SendEv& se);
     bool addToRecQueue(ReceiveEv& e);
     
     LocalCode processRead(ReceiveEv& e, bool ending);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
+    bool pickRealIsn();
     
+    bool checkUnacceptableAck(uint32_t ackNum);
+    bool checkBlindResetPossible(uint32_t seqNum);
+    
+    void advanceUna(uint32_t ackNum);
+    void updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum,bool ack);
+    
+    bool wasPassiveOpen();
+    bool checkFinFullyAcknowledged(uint32_t ackNum);
+    bool checkRespondToUserClose();
+    bool noIncomingData();
+    
+    void respondToReads(TcpCode c);
+    void respondToSends(TcpCode c);
+    
+    bool noSendsOutstanding();
+    void registerClose(CloseEv& e);
+    
+  private:
+
     int id = 0;
     App* parentApp;
     

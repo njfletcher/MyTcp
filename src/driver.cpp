@@ -26,6 +26,16 @@ std::size_t ConnHash::operator()(const ConnPair& p) const {
 std::unordered_map<int, ConnPair> idMap;
 ConnectionMap connections;
 
+
+//simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
+void notifyApp(App* app, TcpCode c, uint32_t eId){
+  app->getAppNotifs().push_back(c);
+}
+
+void notifyApp(App* app, int connId, TcpCode c, uint32_t eId){
+  app->getConnNotifs()[connId].push_back(c);
+}
+
 /*pickDynPort 
 picks an unused port from the dynamic range
 if for some reason it cant find one, returns 0(unspecified)
@@ -81,10 +91,18 @@ void removeConn(Tcb& b){
   connections.erase(b.getConnPair());
 }
 
-//simulates passing a passing an info/error message to a hooked up application that is not applicable to a made connection.
-void notifyApp(App* app, TcpCode c, uint32_t eId){
-  app->getAppNotifs().push_back(c);
+LocalCode remConnFlushAll(int socket, Tcb& b, Event& e){
+  notifyApp(b.getParApp(), b.getId(),TcpCode::CONNRST, e.getId());
+  removeConn(b);
+  return LocalCode::SUCCESS;
+  //TODO: flush segment queues and respond reset to outstanding receives and sends.
+
 }
+LocalCode remConnOnly(int socket, Tcb& b){
+  removeConn(b);
+  return LocalCode::SUCCESS;
+}
+
 
 /*
 multiplexIncoming-
