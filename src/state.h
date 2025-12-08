@@ -244,11 +244,15 @@ class Tcb{
     static bool sendReset(int socket, LocalPair lP, RemotePair rP, uint32_t ackNum, bool ackFlag, uint32_t seqNum);
     
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
+    Tcb(App* parApp, LocalPair l, RemotePair r, bool passive, int ident);
     Tcb() = default;
+    
     
     int getId();
     ConnPair getConnPair();
     App* getParApp();
+    
+    State* getCurrentState();
     
     LocalCode processEventEntry(int socket, OpenEv& oe);
     LocalCode processEventEntry(int socket, SegmentEv& se, RemoteCode& remCode);
@@ -295,6 +299,7 @@ class Tcb{
     
     bool addToSendQueue(SendEv& se);
     bool addToRecQueue(ReceiveEv& e);
+    bool addToRetransmit(TcpPacket p);
     
     LocalCode processRead(ReceiveEv& e, bool ending);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
@@ -315,6 +320,8 @@ class Tcb{
     void respondToSends(TcpCode c);
     
     bool noSendsOutstanding();
+    bool noClosesOutstanding();
+    bool noRetransmitsOutstanding();
     void registerClose(CloseEv& e);
     
   private:

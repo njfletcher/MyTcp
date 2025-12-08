@@ -295,6 +295,12 @@ LocalCode open(App* app, int socket, bool passive, LocalPair lP, RemotePair rP, 
 
   OpenEv ev(passive,0);
   
+  //unspecified remote info in active open does not make sense
+  if(!passive && (rP.first == UNSPECIFIED || rP.second == UNSPECIFIED)){
+      notifyApp(app, TcpCode::ACTIVEUNSPEC, ev.getId());
+      return LocalCode::SUCCESS;
+  }
+  
   ConnPair p(lP,rP);
   if(connections.find(p) != connections.end()){
     //duplicate connection

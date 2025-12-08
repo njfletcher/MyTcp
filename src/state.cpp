@@ -48,6 +48,7 @@ CloseEv::CloseEv(uint32_t id): Event(id){}
 AbortEv::AbortEv(uint32_t id): Event(id){}
 
 Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive){}
+Tcb::Tcb(App* parApp, LocalPair l, RemotePair r, bool passive, int ident) : parentApp(parApp), lP(l), rP(r), passiveOpen(passive), id(ident){}
 
 LocalCode Tcb::processEventEntry(int socket, OpenEv& oe){ return currentState->processEvent(socket, *this, oe); }
 LocalCode Tcb::processEventEntry(int socket, SegmentEv& se, RemoteCode& remCode){ return currentState->processEvent(socket, *this, se, remCode); }
@@ -59,6 +60,8 @@ LocalCode Tcb::processEventEntry(int socket, AbortEv& ae){ return currentState->
 App* Tcb::getParApp() { return parentApp; }
 int Tcb::getId(){ return id; }
 ConnPair Tcb::getConnPair(){ return ConnPair(lP,rP); }
+
+State* Tcb::getCurrentState(){return &*currentState;}
 
 void Tcb::setCurrentState(std::unique_ptr<State> s){ currentState = std::move(s); }
 
@@ -445,6 +448,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, OpenEv& oe){
 
   bool passive = oe.isPassive();
   if(!passive){
+  
     //no need to check for active unspec again, outer open call already does it
     b.pickRealIsn();
     
@@ -1619,6 +1623,11 @@ void Tcb::respondToSends(TcpCode c){
   }
 }
 
+bool Tcb::addToRetransmit(TcpPacket p){
+  retransmit.push_back(p);
+  return true;
+}
+
 LocalCode ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
   b.respondToReads(TcpCode::CLOSING);
   removeConn(b);
@@ -1635,6 +1644,14 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, CloseEv& e){
 
 bool Tcb::noSendsOutstanding(){
   return sendQueue.empty();
+}
+
+bool Tcb::noClosesOutstanding(){
+  return closeQueue.empty();
+}
+
+bool Tcb::noRetransmitsOutstanding(){
+  return retransmit.empty();
 }
 
 void Tcb::registerClose(CloseEv& e){
@@ -1779,6 +1796,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, AbortEv& e){
   return LocalCode::SUCCESS;
 }
 
+//assumes active rem unspec has already been checked for
 Tcb Tcb::buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, RemotePair rP, int& createdId, OpenEv ev){
 
   bool passive = ev.isPassive();
@@ -1787,12 +1805,6 @@ Tcb Tcb::buildTcbFromOpen(bool& success, App* app, int socket, LocalPair lP, Rem
     newConn.setCurrentState(make_unique<ListenS>());
   }
   else{
-    //unspecified remote info in active open does not make sense
-    if(rP.first == UNSPECIFIED || rP.second == UNSPECIFIED){
-      notifyApp(newConn.getParApp(), newConn.getId(), TcpCode::ACTIVEUNSPEC, ev.getId());
-      success = false;
-      return newConn;
-    }
     newConn.setCurrentState(make_unique<SynSentS>());
   }
   

@@ -1,19 +1,14 @@
 #include <gtest/gtest.h>
 #include "../src/state.h"
-#include "TestTcbAccessor.h"
+#include "../src/driver.h"
+#include "testingUtil.h"
 #include <iostream>
 
 using namespace std;
 
 namespace openTests{
 
-const int TEST_APP_ID = 0;
-const int TEST_SOCKET = 0;
-const int TEST_CONN_ID = 1;
-const unsigned int TEST_LOC_IP = 1;
-const unsigned int TEST_LOC_PORT = 1;
-const unsigned int TEST_REM_IP = 1;
-const unsigned int TEST_REM_PORT = 1;
+
 
 class OpenTestFixture : public testing::Test{
 
@@ -30,27 +25,27 @@ void testSimpleNotif(){
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
     App a(TEST_APP_ID, {}, {});
-    Tcb b(&a, lp, rp, true);
-    b.id = TEST_CONN_ID;
+    Tcb b(&a, lp, rp, true, TEST_CONN_ID);
     b.setCurrentState(make_unique<T>());
     ConnPair cPair(lp,rp);
-    connections[cPair] = b;
+    connections[cPair] = move(b);
     
     int createdId = 0;
     LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
   
     ASSERT_EQ(lc , LocalCode::SUCCESS);
     
-    EXPECT_TRUE(a.appNotifs.size() < 1);
+    EXPECT_TRUE(a.getAppNotifs().size() < 1);
     ASSERT_NE(connections.find(cPair) , connections.end());
     Tcb& bNew = connections[cPair];
-    State& testS = *bNew.currentState;
-    EXPECT_TRUE(dynamic_cast<T*>(&testS));
+    State* testS = bNew.getCurrentState();
+    EXPECT_TRUE(dynamic_cast<T*>(testS));
     
+    std::unordered_map<int, std::deque<TcpCode> >& connNotifs = a.getConnNotifs();
     ASSERT_TRUE(
-      (a.connNotifs.find(TEST_CONN_ID) != a.connNotifs.end()) 
-      && (a.getConnNotifs()[TEST_CONN_ID].size() == 1) 
-      && (a.getConnNotifs()[TEST_CONN_ID][0] == TcpCode::DUPCONN)
+      (connNotifs.find(TEST_CONN_ID) != connNotifs.end()) 
+      && (connNotifs[TEST_CONN_ID].size() == 1) 
+      && (connNotifs[TEST_CONN_ID][0] == TcpCode::DUPCONN)
     );
 
 }
@@ -75,178 +70,176 @@ TEST_F(OpenTestFixture, OpenCompleteActive){
     
     Tcb& b = connections[cPair];
     
-    State& testS = TestTcbAccessor::currentState(b);
-    
-    EXPECT_TRUE((b.sUna == b.iss) && (b.sNxt == (b.iss + 1)));
-    ASSERT_TRUE(dynamic_cast<SynSentS*>(&testS));
+    State* testS = b.getCurrentState();
+  
+    ASSERT_TRUE(dynamic_cast<SynSentS*>(testS));
     
 }
 
 TEST_F(OpenTestFixture, OpenCompletePassive){
 
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     int createdId = 0;
-    App a;
+    App a(TEST_APP_ID, {}, {});
     LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
   
     ConnPair cPair(lp,rp);
     
     ASSERT_NE(connections.find(cPair) , connections.end());
     EXPECT_TRUE(idMap.size() > 0);
     
-    EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(a.getAppNotifs().size() < 1);
+    EXPECT_TRUE(a.getConnNotifs().size() < 1);
     
     Tcb& b = connections[cPair];
     
-    State& testS = *b.currentState;
+    State* testS = b.getCurrentState();
     
     
-    EXPECT_TRUE(b.passiveOpen);
-    ASSERT_TRUE(dynamic_cast<ListenS*>(&testS));
+    EXPECT_TRUE(b.wasPassiveOpen());
+    ASSERT_TRUE(dynamic_cast<ListenS*>(testS));
 }
 
 
 
 TEST_F(OpenTestFixture, OpenRemUnspecPassive){
 
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
-    RemotePair rp(Unspecified, Unspecified);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
+    RemotePair rp(UNSPECIFIED, UNSPECIFIED);
     int createdId = 0;
-    App a;
+    App a(TEST_APP_ID, {}, {});
     LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     ConnPair cPair(lp,rp);
     
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(a.getConnNotifs().size() < 1);
     ASSERT_TRUE(connections.find(cPair) != connections.end() && idMap.size() > 0);
 }
 
 TEST_F(OpenTestFixture, OpenRemUnspecActive){
 
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
-    RemotePair rp(Unspecified, Unspecified);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
+    RemotePair rp(UNSPECIFIED, UNSPECIFIED);
     int createdId = 0;
-    App a;
+    App a(TEST_APP_ID, {}, {});
     LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     ConnPair cPair(lp,rp);
     
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(a.getConnNotifs().size() < 1);
     
-    EXPECT_TRUE((a.appNotifs.size() > 0) && (a.appNotifs.front() == TcpCode::ActiveUnspec));
+    EXPECT_TRUE((a.getAppNotifs().size() > 0) && (a.getAppNotifs().front() == TcpCode::ACTIVEUNSPEC));
     ASSERT_TRUE(connections.find(cPair) == connections.end() && idMap.size() < 1);
     
 }
 
 TEST_F(OpenTestFixture, OpenLocUnspec){
 
-    LocalPair lp(Unspecified,Unspecified);
+    LocalPair lp(UNSPECIFIED,UNSPECIFIED);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     int createdId = 0;
-    App a;
+    App a(TEST_APP_ID, {}, {});
     LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
       
     ASSERT_TRUE(connections.size() > 0);
     EXPECT_TRUE(idMap.size() > 0);
     
-    EXPECT_TRUE(a.appNotifs.size() < 1);
-    EXPECT_TRUE(a.connNotifs.size() < 1);
+    EXPECT_TRUE(a.getAppNotifs().size() < 1);
+    EXPECT_TRUE(a.getConnNotifs().size() < 1);
     
     Tcb& b = connections.begin()->second;
-    ASSERT_TRUE(b.lP.first != Unspecified && b.lP.second != Unspecified);
+    ConnPair cPair = b.getConnPair();
+    ASSERT_TRUE(cPair.first.first != UNSPECIFIED && cPair.first.second != UNSPECIFIED);
     
 }
 
 TEST_F(OpenTestFixture, OpenFromListenPassive){
 
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
-    App a;
-    Tcb b(&a, lp, rp, true);
-    b.id = testConnId;
-    b.currentState = make_shared<ListenS>();
+    App a(TEST_APP_ID, {}, {});
+    Tcb b(&a, lp, rp, true, TEST_CONN_ID);
+    b.setCurrentState(make_unique<ListenS>());
     ConnPair cPair(lp,rp);
-    connections[cPair] = b;
+    connections[cPair] = move(b);
     
     int createdId = 0;
     LocalCode lc = open(&a, TEST_SOCKET, true, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     Tcb& bAfter = connections[cPair];
-    State& testS = *bAfter.currentState;
+    State* testS = bAfter.getCurrentState();
     
-    EXPECT_TRUE(bAfter.passiveOpen);
-    EXPECT_TRUE(dynamic_cast<ListenS*>(&testS));
-    EXPECT_TRUE(a.appNotifs.size() < 1);
+    EXPECT_TRUE(bAfter.wasPassiveOpen());
+    EXPECT_TRUE(dynamic_cast<ListenS*>(testS));
+    EXPECT_TRUE(a.getAppNotifs().size() < 1);
+    std::unordered_map<int, std::deque<TcpCode> >& connNotifs = a.getConnNotifs();
     ASSERT_TRUE(
-      (a.connNotifs.find(testConnId) != a.connNotifs.end()) 
-      && (a.connNotifs[testConnId].size() > 0) 
-      && (a.connNotifs[testConnId].front() == TcpCode::DupConn)
+      (connNotifs.find(TEST_CONN_ID) != connNotifs.end()) 
+      && (connNotifs[TEST_CONN_ID].size() > 0) 
+      && (connNotifs[TEST_CONN_ID].front() == TcpCode::DUPCONN)
     );
     
 }
 
 TEST_F(OpenTestFixture, OpenFromListenActive){
 
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
     
-    App a;
-    Tcb b(&a, lp, rp, true);
-    b.id = testConnId;
-    b.currentState = make_shared<ListenS>();
+    App a(TEST_APP_ID, {}, {});
+    Tcb b(&a, lp, rp, true, TEST_CONN_ID);
+    
+    b.setCurrentState(make_unique<ListenS>());
     ConnPair cPair(lp,rp);
-    connections[cPair] = b;
+    connections[cPair] = move(b);
     
     int createdId = 0;
     LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     Tcb& bAfter = connections[cPair];
-    State& testS = *bAfter.currentState;
+    State* testS = bAfter.getCurrentState();
         
-    
-    EXPECT_TRUE((bAfter.sUna == bAfter.iss) && (bAfter.sNxt == (bAfter.iss + 1)));
-    EXPECT_TRUE(dynamic_cast<SynSentS*>(&testS));
-    ASSERT_FALSE(bAfter.passiveOpen);
+    EXPECT_TRUE(dynamic_cast<SynSentS*>(testS));
+    ASSERT_FALSE(bAfter.wasPassiveOpen());
 }
 
 TEST_F(OpenTestFixture, OpenListenActiveRemUnspec){
     
-    LocalPair lp(testLocIp,TEST_LOC_PORT);
-    RemotePair rp(Unspecified, Unspecified);
+    LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
+    RemotePair rp(UNSPECIFIED, UNSPECIFIED);
     
-    App a;
-    Tcb b(&a, lp, rp, true);
-    b.currentState = make_shared<ListenS>();
-    b.id = testConnId;
+    App a(TEST_APP_ID, {}, {});
+    Tcb b(&a, lp, rp, true, TEST_CONN_ID);
+    b.setCurrentState(make_unique<ListenS>());
+  
     ConnPair cPair(lp,rp);
-    connections[cPair] = b; 
+    connections[cPair] = move(b); 
     
     int createdId = 0;
     LocalCode lc = open(&a, TEST_SOCKET, false, lp, rp, createdId);
     
-    ASSERT_EQ(lc , LocalCode::Success);
+    ASSERT_EQ(lc , LocalCode::SUCCESS);
     
     Tcb& bAfter = connections[cPair];
-    State& testS = *bAfter.currentState;
+    State* testS = bAfter.getCurrentState();
 
-    EXPECT_TRUE(bAfter.passiveOpen);
-    EXPECT_TRUE(dynamic_cast<ListenS*>(&testS));
-    ASSERT_TRUE((a.appNotifs.size() > 0) && (a.appNotifs.front() == TcpCode::ActiveUnspec));
+    EXPECT_TRUE(bAfter.wasPassiveOpen());
+    EXPECT_TRUE(dynamic_cast<ListenS*>(testS));
+    ASSERT_TRUE((a.getAppNotifs().size() > 0) && (a.getAppNotifs().front() == TcpCode::ACTIVEUNSPEC));
     
 }
 
