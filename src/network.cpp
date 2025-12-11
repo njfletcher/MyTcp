@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <iostream>
 #include <arpa/inet.h>
-    
+#include "../tests/testingUtil.h"
 
 using namespace std;
 
@@ -64,6 +64,7 @@ bool sendPacket(int sock, uint32_t destAddr, TcpPacket& p){
   p.toBuffer(buffer);
   
   #ifdef TEST_NO_SEND
+    interceptedPackets.push_back(p);
     return true;
   #else
     ssize_t numBytes = sendto(sock, buffer.data(), buffer.size(), 0, (struct sockaddr*)&dest, sizeof(dest));

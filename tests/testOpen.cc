@@ -8,8 +8,6 @@ using namespace std;
 
 namespace openTests{
 
-
-
 class OpenTestFixture : public testing::Test{
 
   void TearDown() override{

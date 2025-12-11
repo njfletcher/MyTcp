@@ -23,12 +23,13 @@ add_executable(
 	testOpen.cc
 	testClose.cc
 	testAbort.cc
+	testSendAndPackageSegment.cc
 	../src/driver.cpp
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp
 	../src/state.cpp
 	../src/network.cpp
-	
+	testingUtil.cpp
 )
 add_definitions(-DTEST_NO_SEND=1)
 

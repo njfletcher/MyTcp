@@ -110,10 +110,11 @@ uint32_t Tcb::getEffectiveSendMss(vector<TcpOption> optionList){
   return messageSize - optionListByteCount - TCP_MIN_HEADER_LEN; //ipOptionByteCount is not considered because we are not setting any ip options on the raw socket.
 }
 
+//assumes numBytes does not exceed usableWindow
 LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_t numBytes){
 
   bool piggybackFin = false;
-  if(!closeQueue.empty() && (sendQueueByteCount == numBytes) && (usableWindow > numBytes)) piggybackFin = true;
+  if(!closeQueue.empty() && (sendQueueByteCount <= numBytes) && (usableWindow > numBytes)) piggybackFin = true;
 
   TcpPacket sendPacket;
   while(true){
