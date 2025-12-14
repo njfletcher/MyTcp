@@ -118,11 +118,26 @@ class App{
 
 #include "driver.h"
 
+//enum form of states, used for comparisons between states to determine if certain actions should be taken
+//Ex: preEstab states should not process sends events
+//Ex: CloseWait state should allow partial Rec event
+enum class StateNums{
+  LISTEN = 1,
+  SYNSENT = 2,
+  SYNREC = 3,
+  ESTAB = 4,
+  FINWAIT1 = 5,
+  FINWAIT2 = 6,
+  CLOSEWAIT = 7,
+  CLOSING = 8,
+  LASTACK = 9,
+  TIMEWAIT = 10
+};
+
 /*
 Using state pattern to handle state transitions and logic. 
 Each State is friended by Tcb to avoid having a ton of getters/setters for the inner tcb state(ie seq nums) that do nothing and expose all the private data.
 */
-
 class State{
   
   public:
@@ -134,6 +149,7 @@ class State{
     virtual LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se) =0;
     virtual LocalCode processEvent(int socket, Tcb& b, CloseEv& se) =0;
     virtual LocalCode processEvent(int socket, Tcb& b, AbortEv& se) =0;
+    virtual StateNums getNum() =0;
 
 };
 
@@ -145,6 +161,7 @@ class ListenS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class SynSentS : public State{
@@ -155,6 +172,7 @@ class SynSentS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class SynRecS : public State{
@@ -165,6 +183,7 @@ class SynRecS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class EstabS : public State{
@@ -175,6 +194,7 @@ class EstabS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class FinWait1S : public State{
@@ -185,6 +205,7 @@ class FinWait1S : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class FinWait2S : public State{
@@ -195,6 +216,7 @@ class FinWait2S : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class CloseWaitS : public State{
@@ -205,6 +227,7 @@ class CloseWaitS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class ClosingS : public State{
@@ -215,6 +238,7 @@ class ClosingS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class LastAckS : public State{
@@ -225,6 +249,7 @@ class LastAckS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class TimeWaitS : public State{
@@ -235,6 +260,7 @@ class TimeWaitS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    StateNums getNum();
 };
 
 class Tcb{
@@ -246,7 +272,6 @@ class Tcb{
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive);
     Tcb(App* parApp, LocalPair l, RemotePair r, bool passive, int ident);
     Tcb() = default;
-    
     
     int getId();
     ConnPair getConnPair();
@@ -301,7 +326,8 @@ class Tcb{
     bool addToRecQueue(ReceiveEv& e);
     bool addToRetransmit(TcpPacket p);
     
-    LocalCode processRead(ReceiveEv& e, bool ending);
+    void processReads();
+    bool processRead(ReceiveEv& es);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
     bool pickRealIsn();
     

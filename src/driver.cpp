@@ -219,13 +219,18 @@ LocalCode multiplexIncoming(int socket, RemoteCode& remCode){
 LocalCode tryConnectionSends(int socket){
   for(auto iter = connections.begin(); iter != connections.end(); iter++){
     Tcb& b = iter->second;
-    LocalCode c = b.trySend(socket );
+    LocalCode c = b.trySend(socket);
     if(c != LocalCode::SUCCESS) return c;
   }
   return LocalCode::SUCCESS;
 }
 
-
+void tryConnectionRecs(){
+  for(auto iter = connections.begin(); iter != connections.end(); iter++){
+    Tcb& b = iter->second;
+    b.processReads();
+  }
+}
 
 LocalCode send(App* app, int socket, bool urgent, deque<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
 
@@ -341,6 +346,7 @@ LocalCode entryTcp(char* sourceAddr){
       
     LocalCode c = tryConnectionSends(socket);
     if(c != LocalCode::SUCCESS) return c;
+    tryConnectionRecs();
   
   }
   

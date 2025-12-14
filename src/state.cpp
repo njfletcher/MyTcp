@@ -79,6 +79,17 @@ void Tcb::resetSwsTimer(){
   swsTimerExpire = std::chrono::steady_clock::now() + swsTimerInterval;
 }
 
+StateNums ListenS::getNum(){ return StateNums::LISTEN; }
+StateNums SynSentS::getNum(){ return StateNums::SYNSENT; }
+StateNums SynRecS::getNum(){ return StateNums::SYNREC; }
+StateNums EstabS::getNum(){ return StateNums::ESTAB; }
+StateNums FinWait1S::getNum(){ return StateNums::FINWAIT1; }
+StateNums FinWait2S::getNum(){ return StateNums::FINWAIT2; }
+StateNums CloseWaitS::getNum(){ return StateNums::CLOSEWAIT; }
+StateNums ClosingS::getNum(){ return StateNums::CLOSING; }
+StateNums LastAckS::getNum(){ return StateNums::LASTACK; }
+StateNums TimeWaitS::getNum(){ return StateNums::TIMEWAIT; }
+
 void cleanup(int res, EVP_MD* sha256, EVP_MD_CTX* ctx, unsigned char * outdigest){
 
   OPENSSL_free(outdigest);
@@ -189,8 +200,12 @@ bool Tcb::scanForPush(uint32_t usableWindow, int& bytes){
 
 LocalCode Tcb::trySend(int socket){
 
+  //sends should only be processed at or after establishment of the connection
+  if(currentState->getNum() < StateNums::ESTAB){
+    return LocalCode::Success;
+  }
+
   while(true){
-  
     uint32_t effSendMss = getEffectiveSendMss(vector<TcpOption>{});
     uint32_t usableWindow = sUna + sWnd - sNxt; 
     uint32_t minDu = usableWindow;
@@ -1521,10 +1536,25 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
     return LocalCode::SUCCESS;
 }
 
-LocalCode Tcb::processRead(ReceiveEv& e, bool ending){
+
+void Tcb::processReads(){
+  for(auto iter = recQueue.begin(); iter != recQueue.end(); iter++){
+    if(!processRead(*iter)){
+      return;
+    }
+  }
+}
+
+bool Tcb::processRead(ReceiveEv& e){
+
+    //sends should only be processed at or after establishment of the connection
+    if(currentState->getNum() < StateNums::ESTAB){
+      return false;
+    }
 
     uint32_t readBytes = 0;
-    if((arrangedSegmentsByteCount >= e.getAmount()) || ending){
+    //processing the rec event when there isnt enough data available is only allowed in the close wait state(all the data has already communicated from peer, so can only give what we have left).
+    if((arrangedSegmentsByteCount >= e.getAmount()) || currentState->getNum() == StateNums::CLOSEWAIT){
     
       bool evaluateMoreSegments = true;  
       while(evaluateMoreSegments && !arrangedSegments.empty()){
@@ -1562,23 +1592,26 @@ LocalCode Tcb::processRead(ReceiveEv& e, bool ending){
       
     }
     else{
-      addToRecQueue(e);
+      return false;
     }
-    return LocalCode::SUCCESS;
+    
+    return !arrangedSegments.empty();
 
 }
 
 LocalCode EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e,false);
+  b.addToRecQueue(e);
+  return LocalCode::SUCCESS;
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e,false);
+  b.addToRecQueue(e);
+  return LocalCode::SUCCESS;
 }
 
-
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  return b.processRead(e,false);
+  b.addToRecQueue(e);
+  return LocalCode::SUCCESS;
 }
 
 bool Tcb::noIncomingData(){
@@ -1591,8 +1624,9 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
       notifyApp(b.getParApp(), b.getId(), TcpCode::CONNCLOSING, e.getId());
       return LocalCode::SUCCESS;
     }
-
-    return b.processRead(e, true);
+    
+    b.addToRecQueue(e);
+    return LocalCode::SUCCESS;
 }
 
 LocalCode ClosingS::processEvent(int socket, Tcb& b, ReceiveEv& e){
