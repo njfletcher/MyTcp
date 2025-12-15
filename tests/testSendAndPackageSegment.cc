@@ -8,14 +8,14 @@ using namespace std;
 
 namespace sendAndPackageSegmentTests{
 
-class SendAndPackageSegmenetFixture : public testing::Test{
+class SendAndPackageSegmentFixture : public testing::Test{
 
   void TearDown() override{
     interceptedPackets.clear();
   }
 };
 
-TEST(SendAndPackageSegmenetFixture, SendSimple){
+TEST_F(SendAndPackageSegmentFixture, SendSimple){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
@@ -33,7 +33,7 @@ TEST(SendAndPackageSegmenetFixture, SendSimple){
       
 }
 
-TEST(SendAndPackageSegmenetFixture, SendPiggybackFin){
+TEST_F(SendAndPackageSegmentFixture, SendPiggybackFin){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
@@ -54,7 +54,7 @@ TEST(SendAndPackageSegmenetFixture, SendPiggybackFin){
       
 }
 
-TEST(SendAndPackageSegmenetFixture, ConcatTwoSends){
+TEST_F(SendAndPackageSegmentFixture, ConcatTwoSends){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
@@ -76,7 +76,7 @@ TEST(SendAndPackageSegmenetFixture, ConcatTwoSends){
       
 }
 
-TEST(SendAndPackageSegmenetFixture, UrgentSplitTwoSends){
+TEST_F(SendAndPackageSegmentFixture, UrgentSplitTwoSends){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
@@ -102,7 +102,7 @@ TEST(SendAndPackageSegmenetFixture, UrgentSplitTwoSends){
       
 }
 
-TEST(SendAndPackageSegmenetFixture, UrgentConcatTwoSendsWithPush){
+TEST_F(SendAndPackageSegmentFixture, UrgentConcatTwoSendsWithPush){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);
@@ -127,7 +127,7 @@ TEST(SendAndPackageSegmenetFixture, UrgentConcatTwoSendsWithPush){
       
 }
 
-TEST(SendAndPackageSegmenetFixture, HalfSendsWithPush){
+TEST_F(SendAndPackageSegmentFixture, HalfSendsWithPush){
 
     LocalPair lp(TEST_LOC_IP,TEST_LOC_PORT);
     RemotePair rp(TEST_REM_IP, TEST_REM_PORT);

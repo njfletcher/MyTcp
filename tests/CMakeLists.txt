@@ -24,6 +24,7 @@ add_executable(
 	testClose.cc
 	testAbort.cc
 	testSendAndPackageSegment.cc
+	testRecAndReadSegment.cc
 	../src/driver.cpp
 	../src/tcpPacket.cpp
 	../src/ipPacket.cpp

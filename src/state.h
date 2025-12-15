@@ -315,7 +315,7 @@ class Tcb{
     LocalCode checkAck(int socket, TcpPacket& tcpP, RemoteCode& remCode);
     LocalCode establishedAckLogic(int socket, TcpPacket& tcpP, RemoteCode& remCode);
     LocalCode checkUrg(TcpPacket& tcpP, Event& e);
-    LocalCode processData(int socket, TcpPacket& tcpP);
+    LocalCode processData(TcpPacket& tcpP);
     LocalCode checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e);
     
     bool sendDataPacket(int socket, TcpPacket& p);

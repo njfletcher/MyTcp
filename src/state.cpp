@@ -202,7 +202,7 @@ LocalCode Tcb::trySend(int socket){
 
   //sends should only be processed at or after establishment of the connection
   if(currentState->getNum() < StateNums::ESTAB){
-    return LocalCode::Success;
+    return LocalCode::SUCCESS;
   }
 
   while(true){
@@ -891,7 +891,7 @@ void Tcb::updateWindowSWSRec(uint32_t freshRecDataAmount){
 
 }
 
-LocalCode Tcb::processData(int socket, TcpPacket& tcpP){
+LocalCode Tcb::processData(TcpPacket& tcpP){
 
   uint32_t seqNum = tcpP.getSeqNum();
   //at this point segment is in the window and any segment with seqNum > rNxt has been put aside for later processing.
@@ -1055,7 +1055,7 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   s = b.checkUrg(tcpP,se);
   if(s != LocalCode::SUCCESS) return s;
   
-  s = b.processData(socket,tcpP);  
+  s = b.processData(tcpP);  
   if(s != LocalCode::SUCCESS) return s;
   
   bool fin = false;
@@ -1131,7 +1131,7 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   s = b.checkUrg(tcpP, se);
   if(s != LocalCode::SUCCESS) return s;
   
-  s = b.processData(socket,tcpP);
+  s = b.processData(tcpP);
   if(s != LocalCode::SUCCESS) return s;
   
   
@@ -1205,7 +1205,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   s = b.checkUrg(tcpP, se);
   if(s != LocalCode::SUCCESS) return s;
   
-  s = b.processData(socket,tcpP);
+  s = b.processData(tcpP);
   if(s != LocalCode::SUCCESS) return s;
   
   bool fin = false;
