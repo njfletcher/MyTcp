@@ -228,7 +228,7 @@ LocalCode tryConnectionSends(int socket){
 void tryConnectionRecs(){
   for(auto iter = connections.begin(); iter != connections.end(); iter++){
     Tcb& b = iter->second;
-    b.processReads();
+    b.tryProcessReads();
   }
 }
 

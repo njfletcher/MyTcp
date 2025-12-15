@@ -15,7 +15,8 @@ const int ARRANGED_SEGMENTS_BYTES_MAX = 500;
 const int REC_QUEUE_MAX = 500;
 const int SEND_QUEUE_BYTE_MAX = 500;
 const uint16_t DEFAULT_MSS = 536; // maximum segment size
-const float MAX_WINDOW_FRACT = 0.5;
+const float MAX_WINDOW_SWS_SEND_FRACT = 0.5;
+const float MAX_BUFFER_SWS_REC_FRACT = 0.5;
 
 class Tcb;
 class State;
@@ -326,8 +327,8 @@ class Tcb{
     bool addToRecQueue(ReceiveEv& e);
     bool addToRetransmit(TcpPacket p);
     
-    void processReads();
-    bool processRead(ReceiveEv& es);
+    void tryProcessReads();
+    bool processRead(ReceiveEv& es, bool save);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
     bool pickRealIsn();
     
@@ -351,6 +352,8 @@ class Tcb{
     void registerClose(CloseEv& e);
     
   private:
+  
+    void updateWindowSWSRec(uint32_t freshRecDataAmount);
 
     int id = 0;
     App* parentApp;

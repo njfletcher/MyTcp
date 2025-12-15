@@ -226,7 +226,7 @@ LocalCode Tcb::trySend(int socket){
       stopSwsTimer();
       if(lc != LocalCode::SUCCESS) return lc;
     }
-    else if(nagleCheck && (minDu >= (static_cast<uint32_t>(MAX_WINDOW_FRACT * maxSWnd)))){
+    else if(nagleCheck && (minDu >= (static_cast<uint32_t>(MAX_WINDOW_SWS_SEND_FRACT * maxSWnd)))){
       LocalCode lc = packageAndSendSegments(socket, usableWindow, minDu);
       stopSwsTimer();
       if(lc != LocalCode::SUCCESS) return lc;
@@ -877,6 +877,20 @@ LocalCode Tcb::checkUrg(TcpPacket& tcpP, Event& e){
   return LocalCode::SUCCESS;
 }
 
+
+void Tcb::updateWindowSWSRec(uint32_t freshRecDataAmount){
+  
+  uint32_t reduction = ARRANGED_SEGMENTS_BYTES_MAX - arrangedSegmentsByteCount - rWnd;
+  if(reduction >= min(static_cast<uint32_t>(MAX_BUFFER_SWS_REC_FRACT * ARRANGED_SEGMENTS_BYTES_MAX), getEffectiveSendMss({}))){
+    rWnd = ARRANGED_SEGMENTS_BYTES_MAX - arrangedSegmentsByteCount;
+  }
+  else{
+    //sws rec algorithm says to keep right edge(rNxt + rWnd) fixed while the above condition is not met. In other words, reduce the advertised window as rNxt increases
+    rWnd -= freshRecDataAmount;
+  }
+
+}
+
 LocalCode Tcb::processData(int socket, TcpPacket& tcpP){
 
   uint32_t seqNum = tcpP.getSeqNum();
@@ -897,12 +911,7 @@ LocalCode Tcb::processData(int socket, TcpPacket& tcpP){
     arrangedSegmentsByteCount++;
   }
   
-  uint32_t oldRightEdge = rNxt + rWnd;
-  rNxt = rNxt + (index - beginUnProc);
-  uint32_t leastWindow = oldRightEdge - rNxt;
-  uint32_t bufferAvail = ARRANGED_SEGMENTS_BYTES_MAX - arrangedSegmentsByteCount;
-  if(bufferAvail >= leastWindow) rWnd = bufferAvail;
-  else rWnd = leastWindow; //TODO Window management suggestions s3.8 SWS
+  updateWindowSWSRec((index - beginUnProc));
 
   return LocalCode::SUCCESS;
 }
@@ -1537,15 +1546,15 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, ReceiveEv& e){
 }
 
 
-void Tcb::processReads(){
+void Tcb::tryProcessReads(){
   for(auto iter = recQueue.begin(); iter != recQueue.end(); iter++){
-    if(!processRead(*iter)){
+    if(!processRead(*iter,false)){
       return;
     }
   }
 }
 
-bool Tcb::processRead(ReceiveEv& e){
+bool Tcb::processRead(ReceiveEv& e, bool save){
 
     //sends should only be processed at or after establishment of the connection
     if(currentState->getNum() < StateNums::ESTAB){
@@ -1592,25 +1601,26 @@ bool Tcb::processRead(ReceiveEv& e){
       
     }
     else{
+      if(save){ addToRecQueue(e); }
       return false;
     }
     
+    updateWindowSWSRec(0);
     return !arrangedSegments.empty();
-
 }
 
 LocalCode EstabS::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  b.addToRecQueue(e);
+  b.processRead(e,true);
   return LocalCode::SUCCESS;
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  b.addToRecQueue(e);
+  b.processRead(e,true);
   return LocalCode::SUCCESS;
 }
 
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, ReceiveEv& e){
-  b.addToRecQueue(e);
+  b.processRead(e,true);
   return LocalCode::SUCCESS;
 }
 
@@ -1625,7 +1635,7 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, ReceiveEv& e){
       return LocalCode::SUCCESS;
     }
     
-    b.addToRecQueue(e);
+    b.processRead(e,true);
     return LocalCode::SUCCESS;
 }
 
