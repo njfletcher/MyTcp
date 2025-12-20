@@ -65,6 +65,9 @@ State* Tcb::getCurrentState(){return &*currentState;}
 
 void Tcb::setCurrentState(std::unique_ptr<State> s){ currentState = std::move(s); }
 
+bool Tcb::getPushSeen(){ return pushSeen;}
+bool Tcb::getUrgentSignaled(){ return urgentSignaled;}
+
 bool Tcb::swsTimerExpired(){
   if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
   return std::chrono::steady_clock::now() >= swsTimerExpire;
@@ -898,7 +901,8 @@ LocalCode Tcb::processData(TcpPacket& tcpP){
   //This leaves two cases: either seqNum < rNxt but there is unprocessed data in the window or seqNum == rNxt
   //regardless want to start reading data at the first unprocessed byte and not reread already processed data.
    
-  if(seqNum != arrangedSegments.back().getSeqNum()){
+  
+  if(arrangedSegments.empty() || (seqNum != arrangedSegments.back().getSeqNum())){
     TcpSegmentSlice newSlice(tcpP.getFlag(TcpPacketFlags::PSH), seqNum, {});
     arrangedSegments.push_back(newSlice);
   }
@@ -909,10 +913,11 @@ LocalCode Tcb::processData(TcpPacket& tcpP){
     arrangedSegments.back().getData().push(tcpP.getPayload()[index]);
     index++;
     arrangedSegmentsByteCount++;
+    rNxt++;
   }
   
   updateWindowSWSRec((index - beginUnProc));
-
+   
   return LocalCode::SUCCESS;
 }
 

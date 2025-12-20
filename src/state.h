@@ -351,6 +351,9 @@ class Tcb{
     bool noRetransmitsOutstanding();
     void registerClose(CloseEv& e);
     
+    bool getPushSeen();
+    bool getUrgentSignaled();
+    
   private:
   
     void updateWindowSWSRec(uint32_t freshRecDataAmount);
