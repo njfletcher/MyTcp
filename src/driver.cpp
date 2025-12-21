@@ -215,7 +215,6 @@ LocalCode multiplexIncoming(int socket, RemoteCode& remCode){
   
 }
 
-
 LocalCode tryConnectionSends(int socket){
   for(auto iter = connections.begin(); iter != connections.end(); iter++){
     Tcb& b = iter->second;
@@ -225,10 +224,22 @@ LocalCode tryConnectionSends(int socket){
   return LocalCode::SUCCESS;
 }
 
-void tryConnectionRecs(){
+void tryConnectionRecs(){  
   for(auto iter = connections.begin(); iter != connections.end(); iter++){
     Tcb& b = iter->second;
     b.tryProcessReads();
+  }
+}
+
+void checkConnectionTimeWaits(){
+  for(auto iter = connections.begin(); iter != connections.end();){
+    Tcb& b = iter->second;
+    if((b.getCurrentState()->getNum() == StateNums::TIMEWAIT) && b.timeWaitTimerExpired()){
+      iter = connections.erase(iter);
+    }
+    else{
+      iter++;
+    }
   }
 }
 
@@ -347,6 +358,7 @@ LocalCode entryTcp(char* sourceAddr){
     LocalCode c = tryConnectionSends(socket);
     if(c != LocalCode::SUCCESS) return c;
     tryConnectionRecs();
+    checkConnectionTimeWaits();
   
   }
   

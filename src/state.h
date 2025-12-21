@@ -17,6 +17,8 @@ const int SEND_QUEUE_BYTE_MAX = 500;
 const uint16_t DEFAULT_MSS = 536; // maximum segment size
 const float MAX_WINDOW_SWS_SEND_FRACT = 0.5;
 const float MAX_BUFFER_SWS_REC_FRACT = 0.5;
+const int SWS_MILLISECONDS = 300;
+const int MSL_SECONDS = 120; //maximum segment lifetime(arbitrarily set to 2 minutes in tcp spec)
 
 class Tcb;
 class State;
@@ -301,6 +303,9 @@ class Tcb{
     bool swsTimerStopped();
     void stopSwsTimer();
     void resetSwsTimer();
+    
+    bool timeWaitTimerExpired();
+    void startTimeWaitTimer();
   
     void setCurrentState(std::unique_ptr<State> s);
   
@@ -400,8 +405,11 @@ class Tcb{
     bool nagle = false;
     std::deque<SendEv> sendQueue;
     int sendQueueByteCount = 0;
-    std::chrono::milliseconds swsTimerInterval{300};
+    std::chrono::milliseconds swsTimerInterval{SWS_MILLISECONDS};
     std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
+    
+    std::chrono::seconds timeWaitInterval{MSL_SECONDS};
+    std::chrono::steady_clock::time_point timeWaitTimerExpire = std::chrono::steady_clock::time_point::min();
         
     std::deque<CloseEv> closeQueue;
     

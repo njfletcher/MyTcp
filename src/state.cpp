@@ -82,6 +82,14 @@ void Tcb::resetSwsTimer(){
   swsTimerExpire = std::chrono::steady_clock::now() + swsTimerInterval;
 }
 
+bool Tcb::timeWaitTimerExpired(){
+  if(timeWaitTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
+  return std::chrono::steady_clock::now() >= timeWaitTimerExpire;
+}
+void Tcb::startTimeWaitTimer(){
+  timeWaitTimerExpire = std::chrono::steady_clock::now() + timeWaitInterval;
+}
+
 StateNums ListenS::getNum(){ return StateNums::LISTEN; }
 StateNums SynSentS::getNum(){ return StateNums::SYNSENT; }
 StateNums SynRecS::getNum(){ return StateNums::SYNREC; }
@@ -1127,10 +1135,12 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
   // if we've reached this part we know ack is set and acceptable
-  if(b.checkFinFullyAcknowledged(tcpP.getAckNum())){
+  bool finAcked = b.checkFinFullyAcknowledged(tcpP.getAckNum());
+  if(finAcked){
       b.setCurrentState(make_unique<FinWait2S>());
-      //TODO: futher processing in fin wait 2s
-      return LocalCode::SUCCESS;
+      //spec says to further process(urg,data,fin,etc) in finWait2
+      //these steps are the same for finWait1 and finWait2(with a minor check needed for rec fin + ack fin later in this logic)
+      //so fall through
   }
   
   s = b.checkUrg(tcpP, se);
@@ -1145,7 +1155,13 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(s != LocalCode::SUCCESS) return s;
   
   if(fin){
-      b.setCurrentState(make_unique<ClosingS>());
+      if(finAcked){
+        b.setCurrentState(make_unique<TimeWaitS>());
+        b.startTimeWaitTimer();
+      }
+      else{
+        b.setCurrentState(make_unique<ClosingS>());
+      }
       return LocalCode::SUCCESS;
   }
         
@@ -1219,6 +1235,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   
   if(fin){
       b.setCurrentState(make_unique<TimeWaitS>());
+      b.startTimeWaitTimer();
       return LocalCode::SUCCESS;
   }
         
@@ -1326,6 +1343,7 @@ LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
   if(b.checkFinFullyAcknowledged(tcpP.getAckNum())){
       //fin segment fully acknowledged
       b.setCurrentState(make_unique<TimeWaitS>());
+      b.startTimeWaitTimer();
       return LocalCode::SUCCESS;
   }
     
@@ -1431,7 +1449,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   
   if(tcpP.getFlag(TcpPacketFlags::FIN)){
     bool sent = b.sendCurrentAck(socket);
-    //restart 2 msl timeout
+    b.startTimeWaitTimer();
     if(sent) return LocalCode::SUCCESS;
     else return LocalCode::SOCKET;
   
