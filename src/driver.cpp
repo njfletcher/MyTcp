@@ -234,12 +234,21 @@ void tryConnectionRecs(){
 void checkConnectionTimeWaits(){
   for(auto iter = connections.begin(); iter != connections.end();){
     Tcb& b = iter->second;
-    if((b.getCurrentState()->getNum() == StateNums::TIMEWAIT) && b.timeWaitTimerExpired()){
+    if(b.timeWaitTimerExpired()){
       iter = connections.erase(iter);
     }
     else{
       iter++;
     }
+  }
+}
+
+LocalCode checkSavedPreEstabProcessing(int socket, RemoteCode& remCode){
+  for(auto iter = connections.begin(); iter != connections.end();){
+    Tcb& b = iter->second;
+    LocalCode c = b.tryProcessSavedPreEstabPackets(socket, remCode);
+    if(c != LocalCode::SUCCESS) return c;
+    if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   }
 }
 
@@ -342,20 +351,23 @@ LocalCode entryTcp(char* sourceAddr){
   bool worked = bindSocket(sourceAddr, socket);
   if(!worked){
     return LocalCode::SOCKET;
-  }
-  
+  }  
+  LocalCode c = LocalCode::SUCCESS;
   RemoteCode remCode = RemoteCode::SUCCESS;
+
   struct pollfd pollItem;
   pollItem.fd = socket;
   pollItem.events = POLLIN; //read
   while(true){
   
+    c = checkSavedPreEstabProcessing(socket,remCode);
+
     int numRet = poll(&pollItem, 1, -1);
     if((numRet > 0) && (pollItem.revents & POLLIN)){
       multiplexIncoming(socket, remCode);
     }
       
-    LocalCode c = tryConnectionSends(socket);
+    c = tryConnectionSends(socket);
     if(c != LocalCode::SUCCESS) return c;
     tryConnectionRecs();
     checkConnectionTimeWaits();

@@ -198,6 +198,7 @@ class EstabS : public State{
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
     StateNums getNum();
+    static LocalCode laterProcessingLogic(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
 };
 
 class FinWait1S : public State{
@@ -303,10 +304,7 @@ class Tcb{
     bool swsTimerStopped();
     void stopSwsTimer();
     void resetSwsTimer();
-    
-    bool timeWaitTimerExpired();
-    void startTimeWaitTimer();
-  
+      
     void setCurrentState(std::unique_ptr<State> s);
   
     void checkAndSetPeerMSS(TcpPacket& tcpP);
@@ -330,8 +328,7 @@ class Tcb{
     
     bool addToSendQueue(SendEv& se);
     bool addToRecQueue(ReceiveEv& e);
-    bool addToRetransmit(TcpPacket p);
-    
+
     void tryProcessReads();
     bool processRead(ReceiveEv& es, bool save);
     LocalCode normalAbortLogic(int socket, AbortEv& e);
@@ -353,11 +350,21 @@ class Tcb{
     
     bool noSendsOutstanding();
     bool noClosesOutstanding();
-    bool noRetransmitsOutstanding();
+    
     void registerClose(CloseEv& e);
     
     bool getPushSeen();
     bool getUrgentSignaled();
+
+    bool timeWaitTimerExpired();
+    void startTimeWaitTimer();
+    
+    bool noRetransmitsOutstanding();
+    bool addToRetransmissions(TcpPacket p);
+    void removeSatisfiedRetransmissions(uint32_t ack);
+
+    void checkSavePacketForEstabProcessing(SegmentEv& ev);
+    LocalCode tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode);
     
   private:
   
@@ -370,7 +377,10 @@ class Tcb{
     LocalPair lP;
     RemotePair rP;
 
-    std::vector<TcpPacket> retransmit;
+    //packets that were received in a pre-estab state that contained other control besides syn/ack or data that needs to be looked at once estab state has been reached
+    std::vector<SegmentEv> preEstabSaved;
+
+    std::vector<TcpPacket> retransmissions;
     
     uint32_t sUna = 0; // first seq num of data that has not been acknowledged by my peer.
     uint32_t sNxt = 0; // first seq num of data that has not been sent by me.

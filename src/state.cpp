@@ -86,8 +86,37 @@ bool Tcb::timeWaitTimerExpired(){
   if(timeWaitTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
   return std::chrono::steady_clock::now() >= timeWaitTimerExpire;
 }
+
+//clock will only ever be started if actively in the timewait state
 void Tcb::startTimeWaitTimer(){
-  timeWaitTimerExpire = std::chrono::steady_clock::now() + timeWaitInterval;
+  if(currentState->getNum() == StateNums::TIMEWAIT){
+    timeWaitTimerExpire = std::chrono::steady_clock::now() + timeWaitInterval;
+  }
+}
+
+bool Tcb::checkRespondToUserClose(){
+  return noRetransmitsOutstanding();
+}
+
+bool Tcb::addToRetransmissions(TcpPacket p){
+  retransmissions.push_back(p);
+  return true;
+}
+
+bool Tcb::noRetransmitsOutstanding(){
+  return retransmissions.empty();
+}
+
+void Tcb::removeSatisfiedRetransmissions(uint32_t ack){
+
+  for(auto iter = retransmissions.begin(); iter < retransmissions.end();){
+    TcpPacket& p = *iter;
+    if((p.getSeqNum() + p.getSegSize()) <= ack){
+      iter = retransmissions.erase(iter);
+    }
+    else iter++;
+  }
+
 }
 
 StateNums ListenS::getNum(){ return StateNums::LISTEN; }
@@ -560,6 +589,35 @@ void Tcb::specifyRemotePair(RemotePair recPair){
     rP = recPair;
 }
 
+void Tcb::checkSavePacketForEstabProcessing(SegmentEv& ev){
+
+  IpPacket& ipP = se.getIpPacket();
+  TcpPacket& tcpP = ipP.getTcpPacket();
+  if(tcpP.getFlag(TcpPacketFlags::URG) || tcpP.getFlag(TcpPacketFlags::PSH) || tcpP.getFlag(TcpPacketFlags::FIN) || (tcpP.getPayload().size() > 0)){
+    preEstabSaved.push_back(ev);
+  }
+}
+
+/*
+This function processes all saved packets upfront.
+Therefore, if the window fills up or anything else prevents a later saved packet from being fully processed, it will be dropped and not kept around.
+Usually, this will not happen, since there will be very few saved preEstab packets and those packets shouldnt have a lot of data, but it is not an impossible scenario.
+TODO for future: add switch that allows packets not fully processed to be kept until they are fully processed
+*/
+LocalCode Tcb::tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool keepAround){
+
+  if(currentState->getNum() < StateNums::ESTAB) return LocalCode::SUCCESS;
+
+  for(auto iter = preEstabSaved.begin(); iter < preEstabSaved.end(); iter++){
+    LocalCode c = EstabS::laterProcessingLogic(socket, *this , *iter , remCode);
+    if(c != LocalCode::SUCCESS) return c;
+    if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
+  }
+
+  preEstabSaved.clear();
+  return LocalCode::Success;
+}
+
 LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
 
   IpPacket& ipP = se.getIpPacket();
@@ -601,7 +659,12 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
       b.setCurrentState(make_unique<SynRecS>());
       b.specifyRemotePair(recPair);
       
-      //TODO 3.10.7.2 possibly trigger another event for processing of data and other control flags here: maybe forward packet without syn and ack flags set?
+      /*
+      At this point RFC9293 says to process other control(ie fins) or text in the syn-rec state, avoiding processing syn and ack again.
+      But, in the syn-rec state, anything besides things that have already been looked at here(so the fins and text) are queued for processing in the estab state.
+      So no need to pass to syn-rec state, just queue for estab state here.
+      */
+      b.checkSavePacketForEstabProcessing(ipP);
       remCode = RemoteCode::SUCCESS;
       return LocalCode::SUCCESS;
     }
@@ -627,11 +690,11 @@ void Tcb::advanceUna(uint32_t ackNum){
   sUna = ackNum;
 }
 
-void Tcb::updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum,bool ack){
+void Tcb::updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum){
       sWnd = wind;
       if(sWnd >= maxSWnd) maxSWnd = sWnd;
       sWl1 = seqNum;
-      if(ack) sWl2 = ackNum;
+      sWl2 = ackNum;
 }
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -695,13 +758,13 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       //standard connection attempt
       
       b.advanceUna(ackN);// ack already validated earlier in method
-      b.updateWindowVars(tcpP.getWindow(),seqN,ackN,true);
-      
-      //TODO: remove segments that are acked from retransmission queue.
-      //TODO: data or controls that were queued for transmission may be added to this packet
+      b.updateWindowVars(tcpP.getWindow(),seqN,ackN);
+    
+      b.removeSatisfiedRetransmissions(ackN);
       bool sent = b.sendCurrentAck(socket);
       if(sent){
           b.setCurrentState(make_unique<EstabS>());
+          b.checkSavePacketForEstabProcessing(ipP); 
           return LocalCode::SUCCESS;
       }
       else{
@@ -710,12 +773,12 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
     
     }
     else{
-      
-      b.updateWindowVars(tcpP.getWindow(),seqN,ackN,false);
+    
       //simultaneous connection attempt
       bool sent = b.sendSyn(socket, cp.first, cp.second, true);
       if(sent){
         b.setCurrentState(make_unique<SynRecS>());
+        b.checkSavePacketForEstabProcessing(ipP);
         return LocalCode::SUCCESS;
       }
       else{
@@ -933,7 +996,7 @@ LocalCode Tcb::checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e){
   
   //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
   if(rWnd > 0){
-    if(tcpP.getFlag(TcpPacketFlags::FIN)){
+    
       rNxt = rNxt + 1;
       //TODO: return conn closing to any pending recs and push any waiting segments.
       notifyApp(parentApp, id, TcpCode::CONNCLOSING, e.getId());
@@ -1004,8 +1067,8 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   if(!b.checkUnacceptableAck(ackNum)){
   
     b.setCurrentState(make_unique<EstabS>());
-    b.updateWindowVars(tcpP.getWindow(), tcpP.getSeqNum(), ackNum, true);
-    //TODO trigger further processing event
+    b.updateWindowVars(tcpP.getWindow(), tcpP.getSeqNum(), ackNum);
+    b.checkSavePacketForEstabProcessing(ipP);
     return LocalCode::SUCCESS;
     
   }
@@ -1016,8 +1079,34 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
     else return LocalCode::SUCCESS;
   }
   
-  //anything past this that needs processing will have been handed off to synchronized state
+}
+
+//assumes ack,rst,syn,sec and all other early processing has already been done
+LocalCode EstabS::laterProcessingLogic(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+  LocalCode s;
+  IpPacket& ipP = se.getIpPacket();
+  TcpPacket& tcpP = ipP.getTcpPacket();
+
+  s = b.checkUrg(tcpP,se);
+  if(s != LocalCode::SUCCESS) return s;
   
+  s = b.processData(tcpP);  
+  if(s != LocalCode::SUCCESS) return s;
+  
+  bool fin = false;
+  s = b.checkFin(socket,tcpP,fin,se);
+  if(s != LocalCode::SUCCESS) return s;
+  
+  if(fin){
+      b.setCurrentState(make_unique<CloseWaitS>());
+      return LocalCode::SUCCESS;
+  }
+  
+  bool sent = b.sendCurrentAck(socket);
+  if(!sent) return LocalCode::SOCKET;
+  else return LocalCode::SUCCESS;
+
 }
 
 LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1032,7 +1121,6 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   
   //s = checkSaveForLater(b,ipP);
   //if(s != LocalCode::Success) return s;
-  
   
   bool reset = false;
   s = b.checkReset(socket,tcpP,true, remCode, reset);
@@ -1065,25 +1153,8 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
-  s = b.checkUrg(tcpP,se);
-  if(s != LocalCode::SUCCESS) return s;
-  
-  s = b.processData(tcpP);  
-  if(s != LocalCode::SUCCESS) return s;
-  
-  bool fin = false;
-  s = b.checkFin(socket,tcpP,fin,se);
-  if(s != LocalCode::SUCCESS) return s;
-  
-  if(fin){
-      b.setCurrentState(make_unique<CloseWaitS>());
-      return LocalCode::SUCCESS;
-  }
-  
-  bool sent = b.sendCurrentAck(socket);
-  if(!sent) return LocalCode::SOCKET;
-  else return LocalCode::SUCCESS;
-  
+  s = laterProcessingLogic(socket, b, se, remCode);
+  return s; 
 }
 
 bool Tcb::checkFinFullyAcknowledged(uint32_t ackNum){
@@ -1169,10 +1240,6 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(!sent) return LocalCode::SOCKET;
   else return LocalCode::SUCCESS;
   
-}
-
-bool Tcb::checkRespondToUserClose(){
-  return (retransmit.size() < 1);
 }
 
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1691,11 +1758,6 @@ void Tcb::respondToSends(TcpCode c){
   }
 }
 
-bool Tcb::addToRetransmit(TcpPacket p){
-  retransmit.push_back(p);
-  return true;
-}
-
 LocalCode ListenS::processEvent(int socket, Tcb& b, CloseEv& e){
   b.respondToReads(TcpCode::CLOSING);
   removeConn(b);
@@ -1716,10 +1778,6 @@ bool Tcb::noSendsOutstanding(){
 
 bool Tcb::noClosesOutstanding(){
   return closeQueue.empty();
-}
-
-bool Tcb::noRetransmitsOutstanding(){
-  return retransmit.empty();
 }
 
 void Tcb::registerClose(CloseEv& e){
@@ -1822,7 +1880,7 @@ LocalCode Tcb::normalAbortLogic(int socket, AbortEv& e){
   respondToReads(TcpCode::CONNRST);
   respondToSends(TcpCode::CONNRST);
   
-  retransmit.clear();
+  retransmissions.clear();
   removeConn(*this);
   if(ls) return LocalCode::SUCCESS;
   else return LocalCode::SOCKET;
