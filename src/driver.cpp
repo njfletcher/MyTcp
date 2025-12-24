@@ -246,10 +246,12 @@ void checkConnectionTimeWaits(){
 LocalCode checkSavedPreEstabProcessing(int socket, RemoteCode& remCode){
   for(auto iter = connections.begin(); iter != connections.end();){
     Tcb& b = iter->second;
-    LocalCode c = b.tryProcessSavedPreEstabPackets(socket, remCode);
+    //cache turned off for now, will be turned on in future when user cache option is implemented
+    LocalCode c = b.tryProcessSavedPreEstabPackets(socket, remCode,false);
     if(c != LocalCode::SUCCESS) return c;
     if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   }
+  return LocalCode::SUCCESS;
 }
 
 LocalCode send(App* app, int socket, bool urgent, deque<uint8_t>& data, LocalPair lP, RemotePair rP, bool push, uint32_t timeout){
@@ -361,6 +363,8 @@ LocalCode entryTcp(char* sourceAddr){
   while(true){
   
     c = checkSavedPreEstabProcessing(socket,remCode);
+    if(c != LocalCode::SUCCESS) return c;
+    if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
 
     int numRet = poll(&pollItem, 1, -1);
     if((numRet > 0) && (pollItem.revents & POLLIN)){

@@ -152,6 +152,7 @@ class State{
     virtual LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se) =0;
     virtual LocalCode processEvent(int socket, Tcb& b, CloseEv& se) =0;
     virtual LocalCode processEvent(int socket, Tcb& b, AbortEv& se) =0;
+    virtual LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode) =0;
     virtual StateNums getNum() =0;
 
 };
@@ -164,6 +165,7 @@ class ListenS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -175,6 +177,7 @@ class SynSentS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -186,6 +189,7 @@ class SynRecS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -197,8 +201,9 @@ class EstabS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
-    static LocalCode laterProcessingLogic(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode);
+    
 };
 
 class FinWait1S : public State{
@@ -209,6 +214,7 @@ class FinWait1S : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -220,6 +226,7 @@ class FinWait2S : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -231,6 +238,7 @@ class CloseWaitS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -242,6 +250,7 @@ class ClosingS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -253,6 +262,7 @@ class LastAckS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -264,6 +274,7 @@ class TimeWaitS : public State{
     LocalCode processEvent(int socket, Tcb& b, ReceiveEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, CloseEv& se)override;
     LocalCode processEvent(int socket, Tcb& b, AbortEv& se)override;
+    LocalCode establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode)override;
     StateNums getNum();
 };
 
@@ -338,7 +349,7 @@ class Tcb{
     bool checkBlindResetPossible(uint32_t seqNum);
     
     void advanceUna(uint32_t ackNum);
-    void updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum,bool ack);
+    void updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum);
     
     bool wasPassiveOpen();
     bool checkFinFullyAcknowledged(uint32_t ackNum);
@@ -364,7 +375,7 @@ class Tcb{
     void removeSatisfiedRetransmissions(uint32_t ack);
 
     void checkSavePacketForEstabProcessing(SegmentEv& ev);
-    LocalCode tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode);
+    LocalCode tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool cache);
     
   private:
   

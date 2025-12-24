@@ -591,7 +591,7 @@ void Tcb::specifyRemotePair(RemotePair recPair){
 
 void Tcb::checkSavePacketForEstabProcessing(SegmentEv& ev){
 
-  IpPacket& ipP = se.getIpPacket();
+  IpPacket& ipP = ev.getIpPacket();
   TcpPacket& tcpP = ipP.getTcpPacket();
   if(tcpP.getFlag(TcpPacketFlags::URG) || tcpP.getFlag(TcpPacketFlags::PSH) || tcpP.getFlag(TcpPacketFlags::FIN) || (tcpP.getPayload().size() > 0)){
     preEstabSaved.push_back(ev);
@@ -599,24 +599,37 @@ void Tcb::checkSavePacketForEstabProcessing(SegmentEv& ev){
 }
 
 /*
-This function processes all saved packets upfront.
-Therefore, if the window fills up or anything else prevents a later saved packet from being fully processed, it will be dropped and not kept around.
-Usually, this will not happen, since there will be very few saved preEstab packets and those packets shouldnt have a lot of data, but it is not an impossible scenario.
-TODO for future: add switch that allows packets not fully processed to be kept until they are fully processed
+This function tries to process any packet with extra control/text that was saved in a pre-established state
+There are two modes:
+1) Cache: only removes saved packets when they have been fully processed. If packets were not processed(ie maybe the window filled up), the unprocessed parts will be retried in future tries.
+2) No Cache: tries to process all saved packets and removes them all, regardless if they were fully processed. If packets were not processed, the peer will be forced to retransmit the unprocessed data.
 */
-LocalCode Tcb::tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool keepAround){
+LocalCode Tcb::tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool cache){
 
   if(currentState->getNum() < StateNums::ESTAB) return LocalCode::SUCCESS;
 
-  for(auto iter = preEstabSaved.begin(); iter < preEstabSaved.end(); iter++){
-    LocalCode c = EstabS::laterProcessingLogic(socket, *this , *iter , remCode);
+  for(auto iter = preEstabSaved.begin(); iter < preEstabSaved.end();){    
+    SegmentEv& ev = *iter;
+    IpPacket& ipP = ev.getIpPacket();
+    TcpPacket& tcpP = ipP.getTcpPacket();
+    uint32_t rNxtBefore = rNxt;
+    LocalCode c = currentState->establishedSegmentLaterProcessing(socket, *this , ev , remCode);
     if(c != LocalCode::SUCCESS) return c;
     if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
+    if(cache){
+      //segment was not fully processed, save it and process the rest later
+      if((rNxt - rNxtBefore) < tcpP.getSegSize()){
+        return LocalCode::SUCCESS; 
+      }
+      else iter = preEstabSaved.erase(iter);
+    }
+    else iter = preEstabSaved.erase(iter);
   }
-
-  preEstabSaved.clear();
-  return LocalCode::Success;
+  
+  return LocalCode::SUCCESS;
 }
+
+LocalCode ListenS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){ return LocalCode::SUCCESS; }
 
 LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
 
@@ -664,7 +677,7 @@ LocalCode ListenS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
       But, in the syn-rec state, anything besides things that have already been looked at here(so the fins and text) are queued for processing in the estab state.
       So no need to pass to syn-rec state, just queue for estab state here.
       */
-      b.checkSavePacketForEstabProcessing(ipP);
+      b.checkSavePacketForEstabProcessing(se);
       remCode = RemoteCode::SUCCESS;
       return LocalCode::SUCCESS;
     }
@@ -696,6 +709,8 @@ void Tcb::updateWindowVars(uint32_t wind, uint32_t seqNum, uint32_t ackNum){
       sWl1 = seqNum;
       sWl2 = ackNum;
 }
+
+LocalCode SynSentS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){ return LocalCode::SUCCESS;}
 
 LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
 
@@ -764,7 +779,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       bool sent = b.sendCurrentAck(socket);
       if(sent){
           b.setCurrentState(make_unique<EstabS>());
-          b.checkSavePacketForEstabProcessing(ipP); 
+          b.checkSavePacketForEstabProcessing(se); 
           return LocalCode::SUCCESS;
       }
       else{
@@ -778,7 +793,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       bool sent = b.sendSyn(socket, cp.first, cp.second, true);
       if(sent){
         b.setCurrentState(make_unique<SynRecS>());
-        b.checkSavePacketForEstabProcessing(ipP);
+        b.checkSavePacketForEstabProcessing(se);
         return LocalCode::SUCCESS;
       }
       else{
@@ -996,7 +1011,7 @@ LocalCode Tcb::checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e){
   
   //can only process fin if we didnt fill up the buffer with processing data and have a non zero window left.
   if(rWnd > 0){
-    
+    if(tcpP.getFlag(TcpPacketFlags::FIN)){
       rNxt = rNxt + 1;
       //TODO: return conn closing to any pending recs and push any waiting segments.
       notifyApp(parentApp, id, TcpCode::CONNCLOSING, e.getId());
@@ -1009,6 +1024,8 @@ LocalCode Tcb::checkFin(int socket, TcpPacket& tcpP, bool& fin, Event& e){
 
 bool Tcb::wasPassiveOpen(){ return passiveOpen; }
 
+LocalCode SynRecS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){ return LocalCode::SUCCESS;}
+
 LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
  
   LocalCode s;
@@ -1018,10 +1035,7 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   s = b.checkSequenceNum(socket, tcpP, remCode);
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
-  
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
-    
+      
   bool reset = false;
   s = b.checkReset(socket, tcpP,true, remCode, reset);
   if(s != LocalCode::SUCCESS) return s;
@@ -1068,7 +1082,7 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   
     b.setCurrentState(make_unique<EstabS>());
     b.updateWindowVars(tcpP.getWindow(), tcpP.getSeqNum(), ackNum);
-    b.checkSavePacketForEstabProcessing(ipP);
+    b.checkSavePacketForEstabProcessing(se);
     return LocalCode::SUCCESS;
     
   }
@@ -1081,8 +1095,8 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   
 }
 
-//assumes ack,rst,syn,sec and all other early processing has already been done
-LocalCode EstabS::laterProcessingLogic(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+LocalCode EstabS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
 
   LocalCode s;
   IpPacket& ipP = se.getIpPacket();
@@ -1118,10 +1132,7 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   s = b.checkSequenceNum(socket,tcpP, remCode);
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
-  
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
-  
+    
   bool reset = false;
   s = b.checkReset(socket,tcpP,true, remCode, reset);
   if(s != LocalCode::SUCCESS) return s;
@@ -1153,12 +1164,38 @@ LocalCode EstabS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& re
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
-  s = laterProcessingLogic(socket, b, se, remCode);
-  return s; 
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
+   
 }
 
 bool Tcb::checkFinFullyAcknowledged(uint32_t ackNum){
   return (ackNum == sNxt);
+}
+
+LocalCode FinWait1S::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+  LocalCode s;
+  IpPacket& ipP = se.getIpPacket();
+  TcpPacket& tcpP = ipP.getTcpPacket();
+
+  s = b.checkUrg(tcpP, se);
+  if(s != LocalCode::SUCCESS) return s;
+  
+  s = b.processData(tcpP);
+  if(s != LocalCode::SUCCESS) return s;
+  
+  bool fin = false;
+  s = b.checkFin(socket,tcpP,fin,se);
+  if(s != LocalCode::SUCCESS) return s;
+  
+  if(fin){
+      b.setCurrentState(make_unique<ClosingS>());
+      return LocalCode::SUCCESS;
+  }
+        
+  bool sent = b.sendCurrentAck(socket);
+  if(!sent) return LocalCode::SOCKET;
+  else return LocalCode::SUCCESS;
 }
 
 LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1170,10 +1207,7 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   s = b.checkSequenceNum(socket,tcpP, remCode);
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
-  
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
-  
+    
   bool reset = false;
   s = b.checkReset(socket,tcpP,true, remCode, reset);
   if(s != LocalCode::SUCCESS) return s;
@@ -1209,37 +1243,40 @@ LocalCode FinWait1S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   bool finAcked = b.checkFinFullyAcknowledged(tcpP.getAckNum());
   if(finAcked){
       b.setCurrentState(make_unique<FinWait2S>());
-      //spec says to further process(urg,data,fin,etc) in finWait2
-      //these steps are the same for finWait1 and finWait2(with a minor check needed for rec fin + ack fin later in this logic)
-      //so fall through
+      //spec says to further process(urg,data,fin,etc) in finWait2, so use the newly updated state(which is finw2) for the later processing logic
+      return b.getCurrentState()->establishedSegmentLaterProcessing(socket, b, se, remCode);
   }
   
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
+  
+}
+
+LocalCode FinWait2S::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+  LocalCode s;
+  IpPacket& ipP = se.getIpPacket();
+  TcpPacket& tcpP = ipP.getTcpPacket();
+
   s = b.checkUrg(tcpP, se);
   if(s != LocalCode::SUCCESS) return s;
   
   s = b.processData(tcpP);
   if(s != LocalCode::SUCCESS) return s;
   
-  
   bool fin = false;
   s = b.checkFin(socket,tcpP,fin,se);
   if(s != LocalCode::SUCCESS) return s;
   
   if(fin){
-      if(finAcked){
-        b.setCurrentState(make_unique<TimeWaitS>());
-        b.startTimeWaitTimer();
-      }
-      else{
-        b.setCurrentState(make_unique<ClosingS>());
-      }
+      b.setCurrentState(make_unique<TimeWaitS>());
+      b.startTimeWaitTimer();
       return LocalCode::SUCCESS;
   }
         
   bool sent = b.sendCurrentAck(socket);
   if(!sent) return LocalCode::SOCKET;
   else return LocalCode::SUCCESS;
-  
+
 }
 
 LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1251,10 +1288,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   s = b.checkSequenceNum(socket,tcpP, remCode);
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
-  
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
-  
+    
   bool reset = false;
   s = b.checkReset(socket,tcpP,true,remCode, reset);
   if(s != LocalCode::SUCCESS) return s;
@@ -1290,26 +1324,17 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
       notifyApp(b.getParApp(), b.getId(), TcpCode::OK, se.getId());
   }
   
-  s = b.checkUrg(tcpP, se);
-  if(s != LocalCode::SUCCESS) return s;
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
   
-  s = b.processData(tcpP);
-  if(s != LocalCode::SUCCESS) return s;
-  
-  bool fin = false;
-  s = b.checkFin(socket,tcpP,fin,se);
-  if(s != LocalCode::SUCCESS) return s;
-  
-  if(fin){
-      b.setCurrentState(make_unique<TimeWaitS>());
-      b.startTimeWaitTimer();
-      return LocalCode::SUCCESS;
-  }
-        
-  bool sent = b.sendCurrentAck(socket);
-  if(!sent) return LocalCode::SOCKET;
-  else return LocalCode::SUCCESS;
-  
+}
+
+LocalCode CloseWaitS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+  //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
+  //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
+  remCode = RemoteCode::UNEXPECTEDPACKET;
+  return LocalCode::SUCCESS;
+
 }
 
 LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1321,9 +1346,6 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode
   s = b.checkSequenceNum(socket,tcpP, remCode);
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
-  
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
   
   bool reset = false;
   s = b.checkReset(socket,tcpP,true, remCode, reset);
@@ -1356,10 +1378,16 @@ LocalCode CloseWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
+}
+
+LocalCode ClosingS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
   remCode = RemoteCode::UNEXPECTEDPACKET;
   return LocalCode::SUCCESS;
+
 }
 
 LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1372,9 +1400,6 @@ LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
-  //s = checkSaveForLater(b,ipP);
-  //if(s != LocalCode::Success) return s;
-
   bool reset = false;
   s = b.checkReset(socket,tcpP,true, remCode, reset);
   if(s != LocalCode::SUCCESS) return s;
@@ -1414,10 +1439,16 @@ LocalCode ClosingS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       return LocalCode::SUCCESS;
   }
     
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
+}
+
+LocalCode LastAckS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
-  remCode = RemoteCode::UNEXPECTEDPACKET;
+  remCode =  RemoteCode::UNEXPECTEDPACKET;
   return LocalCode::SUCCESS;
+
 }
 
 LocalCode LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
@@ -1465,15 +1496,30 @@ LocalCode LastAckS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
     removeConn(b);
     return LocalCode::SUCCESS;
   }
-  else{
-    remCode = RemoteCode::UNEXPECTEDPACKET;
-    return LocalCode::SUCCESS;
-  }
+
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
   
+}
+
+LocalCode TimeWaitS::establishedSegmentLaterProcessing(int socket, Tcb& b, SegmentEv& se, RemoteCode& remCode){
+
+  LocalCode s;
+  IpPacket& ipP = se.getIpPacket();
+  TcpPacket& tcpP = ipP.getTcpPacket();
+
+  if(tcpP.getFlag(TcpPacketFlags::FIN)){
+    bool sent = b.sendCurrentAck(socket);
+    b.startTimeWaitTimer();
+    if(sent) return LocalCode::SUCCESS;
+    else return LocalCode::SOCKET;
+  
+  }
+
   //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
   //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
-  remCode =  RemoteCode::UNEXPECTEDPACKET;
+  remCode = RemoteCode::UNEXPECTEDPACKET;
   return LocalCode::SUCCESS;
+
 }
 
 //TODO: investigate if timestamp RFC 6191 is worth implementing
@@ -1514,18 +1560,7 @@ LocalCode TimeWaitS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
-  if(tcpP.getFlag(TcpPacketFlags::FIN)){
-    bool sent = b.sendCurrentAck(socket);
-    b.startTimeWaitTimer();
-    if(sent) return LocalCode::SUCCESS;
-    else return LocalCode::SOCKET;
-  
-  }
-
-  //ignore urgent, data processing, and fin. Peer has already sent a fin and claimed to have nothing more.
-  //If we've reached this part the packet didnt have the necessary data to continue the close so it is unexpected.
-  remCode = RemoteCode::UNEXPECTEDPACKET;
-  return LocalCode::SUCCESS;
+  return establishedSegmentLaterProcessing(socket, b, se, remCode);
 }
 
 
