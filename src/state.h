@@ -80,7 +80,12 @@ class SendEv: public Event{
     std::deque<uint8_t>& getData();
     bool isUrgent();
     bool isPush();
+    void checkSetSeqNum(uint32_t seq);
+    bool sendAcked(uint32_t ack);
   private:
+    uint32_t assignedSeqNum = 0;
+    bool givenSeqNum = false;
+    uint32_t originalDataLen;
     std::deque<uint8_t> data;
     bool urgent;
     bool push;
@@ -353,7 +358,6 @@ class Tcb{
     
     bool wasPassiveOpen();
     bool checkFinFullyAcknowledged(uint32_t ackNum);
-    bool checkRespondToUserClose();
     bool noIncomingData();
     
     void respondToReads(TcpCode c);
@@ -372,7 +376,10 @@ class Tcb{
     
     bool noRetransmitsOutstanding();
     bool addToRetransmissions(TcpPacket p);
+    void flushRetransmissions();
     void removeSatisfiedRetransmissions(uint32_t ack);
+
+    void okAcknowledgedSends(uint32_t ack);
 
     void checkSavePacketForEstabProcessing(SegmentEv& ev);
     LocalCode tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool cache);
@@ -424,8 +431,10 @@ class Tcb{
     std::deque<ReceiveEv> recQueue;
     
     bool nagle = false;
-    std::deque<SendEv> sendQueue;
+    std::vector<SendEv> unacknowledgedSends; //send events whose data has been sent but not acknowledged fully
+    std::deque<SendEv> sendQueue;//send events with data left that needs to be sent
     int sendQueueByteCount = 0;
+
     std::chrono::milliseconds swsTimerInterval{SWS_MILLISECONDS};
     std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
     

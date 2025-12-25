@@ -37,10 +37,21 @@ OpenEv::OpenEv(bool p, uint32_t id): Event(id), passive(p){}
 bool OpenEv::isPassive(){ return passive; }
 SegmentEv::SegmentEv(IpPacket ipPacket, uint32_t id): Event(id), ipPacket(ipPacket){}
 IpPacket& SegmentEv::getIpPacket(){ return ipPacket; }
-SendEv::SendEv(std::deque<uint8_t> d, bool urg, bool psh, uint32_t id): Event(id), data(d), urgent(urg), push(psh){}
+SendEv::SendEv(std::deque<uint8_t> d, bool urg, bool psh, uint32_t id): Event(id), data(d), urgent(urg), push(psh){
+  originalDataLen = data.size();
+}
 std::deque<uint8_t>& SendEv::getData(){ return data; }
 bool SendEv::isUrgent(){ return urgent; }
 bool SendEv::isPush(){ return push; }
+void SendEv::checkSetSeqNum(uint32_t seq){ 
+  if(!givenSeqNum){
+    assignedSeqNum = seq; 
+    givenSeqNum = true;
+  }
+}
+bool SendEv::sendAcked(uint32_t ack){
+  return ((assignedSeqNum + originalDataLen) <= ack);
+}
 ReceiveEv::ReceiveEv(uint32_t a, std::vector<uint8_t> buff, uint32_t id): Event(id), amount(a), providedBuffer(buff){}
 uint32_t ReceiveEv::getAmount(){ return amount; }
 std::vector<uint8_t>& ReceiveEv::getBuffer(){ return providedBuffer; }
@@ -94,10 +105,6 @@ void Tcb::startTimeWaitTimer(){
   }
 }
 
-bool Tcb::checkRespondToUserClose(){
-  return noRetransmitsOutstanding();
-}
-
 bool Tcb::addToRetransmissions(TcpPacket p){
   retransmissions.push_back(p);
   return true;
@@ -117,6 +124,23 @@ void Tcb::removeSatisfiedRetransmissions(uint32_t ack){
     else iter++;
   }
 
+}
+
+void Tcb::okAcknowledgedSends(uint32_t ack){
+
+  for(auto iter = unacknowledgedSends.begin(); iter < unacknowledgedSends.end();){
+    SendEv& ev = *iter;
+    if(ev.sendAcked(ack)){
+      notifyApp(parentApp, id, TcpCode::OK, ev.getId());   
+      iter = unacknowledgedSends.erase(iter);
+    }
+    else return; 
+  }
+
+}
+
+void Tcb::flushRetransmissions(){
+  retransmissions.clear();
 }
 
 StateNums ListenS::getNum(){ return StateNums::LISTEN; }
@@ -171,7 +195,8 @@ LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_
   while(true){
   
      SendEv& ev = sendQueue.front();
-      
+     ev.checkSetSeqNum(sNxt);
+     
      //cant append urgent data after non urgent data: the urgent pointer will claim all the data is urgent when it is not
      if(ev.isUrgent() && (!sendPacket.getFlag(TcpPacketFlags::URG) && (sendPacket.getPayload().size() > 0))){
           bool ls = sendDataPacket(socket,sendPacket);
@@ -197,6 +222,7 @@ LocalCode Tcb::packageAndSendSegments(int socket, uint32_t usableWindow, uint32_
      
      if(ev.getData().size() == 0){
         sendQueue.pop_front();
+        unacknowledgedSends.push_back(ev);
         if(ev.isPush()){
           sendPacket.setFlag(TcpPacketFlags::PSH);
         }
@@ -928,8 +954,8 @@ LocalCode Tcb::establishedAckLogic(int socket, TcpPacket& tcpP, RemoteCode& remC
     
       if(ackNum > sUna){
         sUna = ackNum;
-        //TODO: remove acked segments from retransmission queue
-        //respond ok to buffers for app
+        removeSatisfiedRetransmissions(ackNum);
+        okAcknowledgedSends(ackNum);
       }
       
       if((sWl1 < seqNum) || ((sWl1 == seqNum) && (sWl2 <= ackNum))){
@@ -1042,16 +1068,15 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
   if(reset){
+    b.flushRetransmissions();
     if(b.wasPassiveOpen()){
       b.setCurrentState(make_unique<ListenS>());
-      return LocalCode::SUCCESS;
     }
     else{
       removeConn(b);
       notifyApp(b.getParApp(), b.getId(), TcpCode::CONNREF, se.getId());
-      return LocalCode::SUCCESS;
     }
-    //TODO : flush retransmission queue
+    return LocalCode::SUCCESS;
   }
   
   s = b.checkSec(socket,ipP, remCode);
@@ -1320,7 +1345,7 @@ LocalCode FinWait2S::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode&
   if(s != LocalCode::SUCCESS) return s;
   if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
   
-  if(b.checkRespondToUserClose()){
+  if(b.noRetransmitsOutstanding()){
       notifyApp(b.getParApp(), b.getId(), TcpCode::OK, se.getId());
   }
   
@@ -1915,7 +1940,7 @@ LocalCode Tcb::normalAbortLogic(int socket, AbortEv& e){
   respondToReads(TcpCode::CONNRST);
   respondToSends(TcpCode::CONNRST);
   
-  retransmissions.clear();
+  flushRetransmissions();
   removeConn(*this);
   if(ls) return LocalCode::SUCCESS;
   else return LocalCode::SOCKET;
