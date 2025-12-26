@@ -105,27 +105,76 @@ void Tcb::startTimeWaitTimer(){
   }
 }
 
-bool Tcb::addToRetransmissions(TcpPacket p){
-  retransmissions.push_back(p);
-  return true;
+void Tcb::addToRetransmissions(TcpPacket p){
+  retransmissions.push_back(Retransmit(p));
 }
 
 bool Tcb::noRetransmitsOutstanding(){
   return retransmissions.empty();
 }
 
-void Tcb::removeSatisfiedRetransmissions(uint32_t ack){
+void Tcb::takeKarnSamplesAndRemoveFullyAckedRetransmits(uint32_t ack){
+
+  std::chrono::time_point<std::chrono::steady_clock> measuredEnd = std::chrono::steady_clock::now();
 
   for(auto iter = retransmissions.begin(); iter < retransmissions.end();){
-    TcpPacket& p = *iter;
-    if((p.getSeqNum() + p.getSegSize()) <= ack){
-      iter = retransmissions.erase(iter);
+    Retransmit& r = *iter;
+    TcpPacket& p = r.getPacket();
+        
+    //If the peer has acknowledged at least one byte of data, that is an indicator that they have received at least some of this data, so we can try to use this as a rtt measurement(if it hasnt been retransmitted in accordance with Karn's)
+    if(p.getSeqNum() < ack){
+      if(r.isKarnSuitable()){
+        std::chrono::duration<double> rttMeasurement = measuredEnd - r.getTimestamp();
+        updateKarnVariables(rttMeasurement);    
+      }
+      
+      //fully acked
+      if((p.getSeqNum() + p.getSegSize()) <= ack){
+        iter = retransmissions.erase(iter);
+      }
+      else return; // no chance later retransmits are fully or partially acked if this one isnt fully acked, since retransmits do not overlap
+
     }
-    else iter++;
+    else return; // no chance later retransmits are fully or partially acked if this one isnt fully acked, since retransmits do not overlap
   }
 
 }
 
+void Tcb::updateKarnVariables(std::chrono::duration<double> rttMeasurement){
+  int k = 4;  //recommended by RFC 6298, not really sure why
+
+  if(firstKarnMeasurement){
+    srtt = rttMeasurement;
+    rttvar = rttMeasurement / 2;
+  }
+  else{
+    rttvar = ((1.0 - KARN_BETA) * RTTVAR) + (KARN_BETA * abs(srtt - rttMeasurement));
+    srtt = ((1.0 - KARN_ALPHA) * srtt) + (KARN_ALPHA * rttMeasurement);
+  }
+
+  rtoInterval = srtt + max(CLOCK_GRANULARITY, k * rttvar);
+  rtoInterval = max(rtoInterval, RTO_FLOOR_SECONDS);
+  firstKarnMeasurement = false;
+}
+
+Retransmit::Retransmit(TcpPacket& p): packet(p){
+  originalSendTimeStamp = std::chrono::steady_clock::now();
+}
+Retransmit::incrementRetransmit(){
+  numRetransmits++;
+}
+TcpPacket Retransmit::getPacket(){
+  return packet;
+}
+
+bool Retransmit::isKarnSuitable(){
+  return numRetransmits < 1;
+}
+
+std::chrono::time_point<std::chrono::steady_clock> Retransmit::getTimestamp(){
+  return originalSendTimestamp;
+}
+  
 void Tcb::okAcknowledgedSends(uint32_t ack){
 
   for(auto iter = unacknowledgedSends.begin(); iter < unacknowledgedSends.end();){
@@ -274,8 +323,7 @@ LocalCode Tcb::trySend(int socket){
   while(true){
     uint32_t effSendMss = getEffectiveSendMss(vector<TcpOption>{});
     uint32_t usableWindow = sUna + sWnd - sNxt; 
-    uint32_t minDu = usableWindow;
-    if(sendQueueByteCount < minDu) minDu = sendQueueByteCount;
+    uint32_t minDu = min(usableWindow,sendQueueByteCount);
     if(minDu < 1){
       break;
     }
@@ -471,6 +519,7 @@ bool Tcb::sendDataPacket(int socket, TcpPacket& p){
 
  p.setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setAck(rNxt).setWindow(rWnd).setOptions(vector<TcpOption>{}).setRealChecksum(lP.first, rP.first);
       
+  addToRetransmissions(p);
   return sendPacket(socket,rP.first,p);
 }
 
@@ -491,6 +540,7 @@ bool Tcb::sendFin(int socket){
   vector<uint8_t> data;
   sPacket.setFlag(TcpPacketFlags::FIN).setFlag(TcpPacketFlags::ACK).setSrcPort(lP.second).setDestPort(rP.second).setSeq(sNxt).setAck(rNxt).setWindow(rWnd).setOptions(options).setPayload(data).setRealChecksum(lP.first, rP.first);
       
+  addToRetransmissions(sPacket);
   return sendPacket(socket,rP.first,sPacket);
   
 }
@@ -515,7 +565,9 @@ bool Tcb::sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck){
     sPacket.setDataOffset(sPacket.getDataOffset() + 1); //since the mss option is 4 bytes we can cleanly add one word to offset.
   }
   
-  sPacket.setRealChecksum(lp.first, rp.first);  
+  sPacket.setRealChecksum(lp.first, rp.first);
+
+  addToRetransmissions(sPacket);  
   return sendPacket(socket, rp.first, sPacket);
   
 }
@@ -801,7 +853,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       b.advanceUna(ackN);// ack already validated earlier in method
       b.updateWindowVars(tcpP.getWindow(),seqN,ackN);
     
-      b.removeSatisfiedRetransmissions(ackN);
+      b.takeKarnSamplesAndRemoveFullyAckedRetransmits(ackN);
       bool sent = b.sendCurrentAck(socket);
       if(sent){
           b.setCurrentState(make_unique<EstabS>());
@@ -954,7 +1006,7 @@ LocalCode Tcb::establishedAckLogic(int socket, TcpPacket& tcpP, RemoteCode& remC
     
       if(ackNum > sUna){
         sUna = ackNum;
-        removeSatisfiedRetransmissions(ackNum);
+        takeKarnSamplesAndRemoveFullyAckedRetransmits(ackNum);
         okAcknowledgedSends(ackNum);
       }
       

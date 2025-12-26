@@ -9,6 +9,9 @@
 #include <memory>
 #include <chrono>
 
+const std::chrono::nanoseconds CLOCK_GRANULARITY{1}; //measured for linux
+const float KARN_BETA = 0.25; //suggested by RFC 6298
+const float KARN_ALPHA = 0.125; //suggested by RFC 6298
 const uint16_t UNSPECIFIED = 0;
 const int KEY_LEN = 16; //128 bits = 16 bytes recommended by RFC 6528
 const int ARRANGED_SEGMENTS_BYTES_MAX = 500;
@@ -19,6 +22,7 @@ const float MAX_WINDOW_SWS_SEND_FRACT = 0.5;
 const float MAX_BUFFER_SWS_REC_FRACT = 0.5;
 const int SWS_MILLISECONDS = 300;
 const int MSL_SECONDS = 120; //maximum segment lifetime(arbitrarily set to 2 minutes in tcp spec)
+const int RTO_FLOOR_SECONDS = 1; //recommended by RFC 6298
 
 class Tcb;
 class State;
@@ -283,6 +287,20 @@ class TimeWaitS : public State{
     StateNums getNum();
 };
 
+
+class Retransmit{
+  public:
+    Retransmit(TcpPacket& p);
+    void incrementRetransmit();
+    bool isKarnSuitable();
+    TcpPacket getPacket();
+    std::chrono::time_point<std::chrono::steady_clock> getTimestamp();
+  private:
+    TcpPacket packet;
+    int numRetransmits = 0;
+    std::chrono::time_point<std::chrono::steady_clock> originalSendTimestamp;
+}
+
 class Tcb{
 
   public:
@@ -375,9 +393,9 @@ class Tcb{
     void startTimeWaitTimer();
     
     bool noRetransmitsOutstanding();
-    bool addToRetransmissions(TcpPacket p);
+    void addToRetransmissions(TcpPacket p);
     void flushRetransmissions();
-    void removeSatisfiedRetransmissions(uint32_t ack);
+    void takeKarnSamplesAndRemoveFullyAckedRetransmits(uint32_t ack);
 
     void okAcknowledgedSends(uint32_t ack);
 
@@ -387,6 +405,7 @@ class Tcb{
   private:
   
     void updateWindowSWSRec(uint32_t freshRecDataAmount);
+    void updateKarnVariables(std::chrono::duration<double> rttMeasurement);
 
     int id = 0;
     App* parentApp;
@@ -398,7 +417,7 @@ class Tcb{
     //packets that were received in a pre-estab state that contained other control besides syn/ack or data that needs to be looked at once estab state has been reached
     std::vector<SegmentEv> preEstabSaved;
 
-    std::vector<TcpPacket> retransmissions;
+    std::vector<Retransmit> retransmissions;
     
     uint32_t sUna = 0; // first seq num of data that has not been acknowledged by my peer.
     uint32_t sNxt = 0; // first seq num of data that has not been sent by me.
@@ -445,6 +464,13 @@ class Tcb{
     
     std::unique_ptr<State> currentState;
     bool passiveOpen = false;
-    
+
+    //karn algorithm stuff
+    uint32_t srtt = 0; //smoothed rout trip time
+    uint32_t rttvar = 0; // round trip time variation
+    bool firstKarnMeasurement = true;
+    //retransmission timeout
+    std::chrono::seconds rtoInterval{RTO_FLOOR_SECONDS}; 
+    std::chrono::steady_clock::time_point rtoTimerExpire = std::chrono::steady_clock::time_point::min();
 };
 
