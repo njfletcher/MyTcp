@@ -1,0 +1,3 @@
+RFC 9293
+RFC 5961 
+Karn, Phil & Partridge, Craig. (2001). Improving Round-Trip Time Estimates in Reliable Transport Protocols. ACM Transactions on Computer Systems. 9. 10.1145/55483.55484. 
