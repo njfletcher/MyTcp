@@ -22,7 +22,9 @@ const float MAX_WINDOW_SWS_SEND_FRACT = 0.5;
 const float MAX_BUFFER_SWS_REC_FRACT = 0.5;
 const int SWS_MILLISECONDS = 300;
 const int MSL_SECONDS = 120; //maximum segment lifetime(arbitrarily set to 2 minutes in tcp spec)
-const int RTO_FLOOR_SECONDS = 1; //recommended by RFC 6298
+const int RTO_FLOOR_SECONDS = 1; //required by RFC 6298
+const int RTO_BAD_HANDSHAKE_INITIAL_SECONDS = 3; // required by RFC 6298 to be the initial timeout in established state if retransmission happens during the handshake under certain conditions
+int RTO_CEILING_SECONDS = -1; //60 optionally specified by RFC 6298, -1 means ceiling is not used. When this is set by user will need to check to make sure it is over the floor
 
 class Tcb;
 class State;
@@ -295,10 +297,15 @@ class Retransmit{
     bool isKarnSuitable();
     TcpPacket getPacket();
     std::chrono::time_point<std::chrono::steady_clock> getTimestamp();
+    bool updateAck(uint32_t ack);
   private:
     TcpPacket packet;
     int numRetransmits = 0;
     std::chrono::time_point<std::chrono::steady_clock> originalSendTimestamp;
+    // represents the the highest ack received that satisifies at least some of this segment
+    //protects against multiple of the same ack num being seen as acknowledging new data when the segment is not fully acknowledged and removed from the retransmit queue
+    uint32_t furthestAck;
+    bool acked = false;
 }
 
 class Tcb{
@@ -359,6 +366,7 @@ class Tcb{
     bool sendCurrentAck(int socket);
     bool sendFin(int socket);
     bool sendSyn(int socket, LocalPair lp, RemotePair rp, bool sendAck);
+    bool rtoExpireCallback(int socket);
     
     bool addToSendQueue(SendEv& se);
     bool addToRecQueue(ReceiveEv& e);
@@ -401,12 +409,14 @@ class Tcb{
 
     void checkSavePacketForEstabProcessing(SegmentEv& ev);
     LocalCode tryProcessSavedPreEstabPackets(int socket, RemoteCode& remCode, bool cache);
+
+    bool rtoTimerExpired();
+    void checkChangeRTOTimer();
     
   private:
   
     void updateWindowSWSRec(uint32_t freshRecDataAmount);
-    void updateKarnVariables(std::chrono::duration<double> rttMeasurement);
-
+  
     int id = 0;
     App* parentApp;
     
@@ -455,10 +465,12 @@ class Tcb{
     int sendQueueByteCount = 0;
 
     std::chrono::milliseconds swsTimerInterval{SWS_MILLISECONDS};
-    std::chrono::steady_clock::time_point swsTimerExpire = std::chrono::steady_clock::time_point::min();
+    std::chrono::steady_clock::time_point swsTimerExpire;
+    bool swsTimerRunning = false;
     
     std::chrono::seconds timeWaitInterval{MSL_SECONDS};
-    std::chrono::steady_clock::time_point timeWaitTimerExpire = std::chrono::steady_clock::time_point::min();
+    std::chrono::steady_clock::time_point timeWaitTimerExpire;
+    bool timeWaitTimerRunning = false;
         
     std::deque<CloseEv> closeQueue;
     
@@ -471,6 +483,12 @@ class Tcb{
     bool firstKarnMeasurement = true;
     //retransmission timeout
     std::chrono::seconds rtoInterval{RTO_FLOOR_SECONDS}; 
-    std::chrono::steady_clock::time_point rtoTimerExpire = std::chrono::steady_clock::time_point::min();
+    std::chrono::steady_clock::time_point rtoTimerExpire;
+    bool rtoTimerRunning = false;
+    bool handshakeHadRetransmission = false;
+
+    void tryStartRTOTimer();
+    void stopRTOTimer();
+    void updateKarnVariables(std::chrono::duration<double> rttMeasurement);
 };
 

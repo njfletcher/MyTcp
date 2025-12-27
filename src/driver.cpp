@@ -103,7 +103,6 @@ LocalCode remConnOnly(int socket, Tcb& b){
   return LocalCode::SUCCESS;
 }
 
-
 /*
 multiplexIncoming-
 Upon notification of incoming packet on interface, this method
@@ -155,7 +154,6 @@ LocalCode multiplexIncoming(int socket, RemoteCode& remCode){
     if(connections.find(cPair) != connections.end()){
       return connections[cPair].processEventEntry(socket,ev, remCode);
     }
-    
     
     //if we've gotten to this point no conn exists: fictional closed state
     bool sent = false;
@@ -244,12 +242,22 @@ void checkConnectionTimeWaits(){
 }
 
 LocalCode checkSavedPreEstabProcessing(int socket, RemoteCode& remCode){
-  for(auto iter = connections.begin(); iter != connections.end();){
+  for(auto iter = connections.begin(); iter != connections.end(); iter++){
     Tcb& b = iter->second;
     //cache turned off for now, will be turned on in future when user cache option is implemented
     LocalCode c = b.tryProcessSavedPreEstabPackets(socket, remCode,false);
     if(c != LocalCode::SUCCESS) return c;
     if(remCode != RemoteCode::SUCCESS) return LocalCode::SUCCESS;
+  }
+  return LocalCode::SUCCESS;
+}
+
+LocalCode checkRTO(int socket){
+  for(auto iter = connections.begin(); iter != connections.end(); iter++){
+    Tcb& b = iter->second;
+    if(b.rtoTimerExpired()){
+      if(!rtoExpireCallback(socket)) return LocalCode::SOCKET;
+    }
   }
   return LocalCode::SUCCESS;
 }
@@ -370,6 +378,9 @@ LocalCode entryTcp(char* sourceAddr){
     if((numRet > 0) && (pollItem.revents & POLLIN)){
       multiplexIncoming(socket, remCode);
     }
+
+    c = checkRTO(socket);
+    if(c != LocalCode::SUCCESS) return c;
       
     c = tryConnectionSends(socket);
     if(c != LocalCode::SUCCESS) return c;

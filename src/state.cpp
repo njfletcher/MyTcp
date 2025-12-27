@@ -80,37 +80,89 @@ bool Tcb::getPushSeen(){ return pushSeen;}
 bool Tcb::getUrgentSignaled(){ return urgentSignaled;}
 
 bool Tcb::swsTimerExpired(){
-  if(swsTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
-  return std::chrono::steady_clock::now() >= swsTimerExpire;
+  if(swsTimerRunning){
+    return std::chrono::steady_clock::now() >= swsTimerExpire;
+  }
+  else return false;
 }
 bool Tcb::swsTimerStopped(){
-  return swsTimerExpire == std::chrono::steady_clock::time_point::min();
+  return !swsTimerRunning;
 }
 void Tcb::stopSwsTimer(){
-  swsTimerExpire = std::chrono::steady_clock::time_point::min();
+  swsTimerRunning = false;
 }
 void Tcb::resetSwsTimer(){
   swsTimerExpire = std::chrono::steady_clock::now() + swsTimerInterval;
+  swsTimerRunning = true;
 }
 
 bool Tcb::timeWaitTimerExpired(){
-  if(timeWaitTimerExpire == std::chrono::steady_clock::time_point::min()) return false;
-  return std::chrono::steady_clock::now() >= timeWaitTimerExpire;
+  if(timeWaitTimerRunning){ 
+    return std::chrono::steady_clock::now() >= timeWaitTimerExpire;
+  }
+  else return false;
 }
 
-//clock will only ever be started if actively in the timewait state
 void Tcb::startTimeWaitTimer(){
   if(currentState->getNum() == StateNums::TIMEWAIT){
     timeWaitTimerExpire = std::chrono::steady_clock::now() + timeWaitInterval;
+    timeWaitTimerRunning = true;
   }
+}
+
+
+void Tcb::tryStartRtoTimer(){
+  if(!rtoTimerRunning){
+    rtoTimerExpire = std::chrono::steady_clock::now() + rtoInterval;
+    rtoTimerRunning = true;
+  }
+}
+void Tcb::stopRTOTimer(){
+  rtoTimerRunning = false;
+}
+
+bool Tcb::rtoTimerExpired(){
+  if(rtoTimerRunning){ 
+    return std::chrono::steady_clock::now() >= rtoTimerExpire;
+  }
+  else return false;
+}
+void Tcb::checkChangeRTOTimer(){
+  if(handshakeHadRetransmission){
+    rto = RTO_BAD_HANDSHAKE_INITIAL_SECONDS;
+  }
+  //otherwise default will still be 1 second
 }
 
 void Tcb::addToRetransmissions(TcpPacket p){
   retransmissions.push_back(Retransmit(p));
+  tryStartRTOTimer();
 }
 
 bool Tcb::noRetransmitsOutstanding(){
   return retransmissions.empty();
+}
+
+//triggered by rto timeout, assumes at least one item left to retransmit or else the rto timer would never have been started
+bool Tcb::rtoExpireCallback(int socket){
+
+  stopRTOTimer();
+  Retransmit& r = retransmissions.front();
+  r.incrementRetransmit();
+  TcpPacket& rPacket = r.getPacket();
+  //RFC 6298 5.7
+  if(rPacket.getFlag(TcpPacketFlags::SYN) && (rto < RTO_BAD_HANDSHAKE_INITIAL_SECONDS)){
+      handshakeHadRetransmission = true;
+  }
+  
+  if(!sendPacket(socket,rP.first,rPacket)) return false;
+  rto = rto * 2; // exponential backoff required by RFC 6298
+  if(RTO_CEILING_SECONDS > -1){
+    rto = min(rto, RTO_CEILING_SECONDS);
+  }  
+  tryStartRTOTimer();
+
+  return true;
 }
 
 void Tcb::takeKarnSamplesAndRemoveFullyAckedRetransmits(uint32_t ack){
@@ -121,12 +173,18 @@ void Tcb::takeKarnSamplesAndRemoveFullyAckedRetransmits(uint32_t ack){
     Retransmit& r = *iter;
     TcpPacket& p = r.getPacket();
         
-    //If the peer has acknowledged at least one byte of data, that is an indicator that they have received at least some of this data, so we can try to use this as a rtt measurement(if it hasnt been retransmitted in accordance with Karn's)
     if(p.getSeqNum() < ack){
+
+      bool newDataAcked = r.updateAck(ack);
+      //dont want to take a sample(or restart the rto timer) if this ack is the same or lower than an ack already seen for this segment(meaning new data hasnt actually reached the peer)
+      if(!newDataAcked) return;
+
       if(r.isKarnSuitable()){
         std::chrono::duration<double> rttMeasurement = measuredEnd - r.getTimestamp();
         updateKarnVariables(rttMeasurement);    
       }
+
+      tryStartRTOTimer(); 
       
       //fully acked
       if((p.getSeqNum() + p.getSegSize()) <= ack){
@@ -137,6 +195,9 @@ void Tcb::takeKarnSamplesAndRemoveFullyAckedRetransmits(uint32_t ack){
     }
     else return; // no chance later retransmits are fully or partially acked if this one isnt fully acked, since retransmits do not overlap
   }
+
+  //if we get here, all outstanding data has been acked, no need for timer
+  stopRTOTimer();
 
 }
 
@@ -173,6 +234,18 @@ bool Retransmit::isKarnSuitable(){
 
 std::chrono::time_point<std::chrono::steady_clock> Retransmit::getTimestamp(){
   return originalSendTimestamp;
+}
+
+//returns whether or not the ack actually is referencing new data for this segment
+bool Retransmit::updateAck(uint32_t ack){
+    
+  if(!acked || (ack > furthestAck)){
+      furthestAck = ack;
+      acked = true;
+      return true;      
+  }
+  else return false;
+
 }
   
 void Tcb::okAcknowledgedSends(uint32_t ack){
@@ -857,6 +930,7 @@ LocalCode SynSentS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& 
       bool sent = b.sendCurrentAck(socket);
       if(sent){
           b.setCurrentState(make_unique<EstabS>());
+          b.checkChangeRTOTimer();
           b.checkSavePacketForEstabProcessing(se); 
           return LocalCode::SUCCESS;
       }
@@ -1158,6 +1232,7 @@ LocalCode SynRecS::processEvent(int socket, Tcb& b, SegmentEv& se, RemoteCode& r
   if(!b.checkUnacceptableAck(ackNum)){
   
     b.setCurrentState(make_unique<EstabS>());
+    b.checkChangeRTOTimer();
     b.updateWindowVars(tcpP.getWindow(), tcpP.getSeqNum(), ackNum);
     b.checkSavePacketForEstabProcessing(se);
     return LocalCode::SUCCESS;
